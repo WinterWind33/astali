@@ -13,12 +13,24 @@ class DefaultSettingsMenuSpawner implements SettingsMenuSpawner {
 
   @override
   void spawnSettingsMenu(BuildContext context) {
-    print("Callback succesfully called!");
+    showMenu(
+        context: context,
+        position: const RelativeRect.fromLTRB(100, 100, 200, 200),
+        items: [const PopupMenuItem<int>(value: 0, child: Text("About"))]);
   }
 }
 
 class AstaliApp extends StatelessWidget {
   const AstaliApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(title: 'Astali', home: AstaliAppHome());
+  }
+}
+
+class AstaliAppHome extends StatelessWidget {
+  const AstaliAppHome({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -46,16 +58,12 @@ class AstaliApp extends StatelessWidget {
           ],
         ));
 
-    return MaterialApp(
-        title: 'Astali',
-        home: Scaffold(
-            appBar: AppBar(title: const Text("Astali: an app for students")),
-            body: Column(
-              children: [titleSection],
-            )));
+    return Scaffold(
+        appBar: AppBar(title: const Text("Astali: an app for students")),
+        body: Column(
+          children: [titleSection],
+        ));
   }
-
-  void onPressed() {}
 
   final SettingsButtonEventHandler settingsButtonEventHandler =
       const SettingsButtonEventHandler(DefaultSettingsMenuSpawner());
