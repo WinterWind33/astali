@@ -1,10 +1,20 @@
 // Copyright (C) 2022 Andrea Ballestrazzi
 
+import 'package:astali/settings_menu_spawner.dart';
 import 'package:flutter/material.dart';
 import 'package:astali/settings_button_event_handler.dart';
 
 void main() {
   runApp(const AstaliApp());
+}
+
+class DefaultSettingsMenuSpawner implements SettingsMenuSpawner {
+  const DefaultSettingsMenuSpawner();
+
+  @override
+  void spawnSettingsMenu(BuildContext context) {
+    print("Callback succesfully called!");
+  }
 }
 
 class AstaliApp extends StatelessWidget {
@@ -27,7 +37,8 @@ class AstaliApp extends StatelessWidget {
                       padding: const EdgeInsets.only(right: 8),
                       child: IconButton(
                         icon: const Icon(Icons.settings, color: Colors.white),
-                        onPressed: settingsButtonEventHandler.onPressed,
+                        onPressed: () =>
+                            settingsButtonEventHandler.onPressed(context),
                       ))
                 ],
               ),
@@ -47,5 +58,5 @@ class AstaliApp extends StatelessWidget {
   void onPressed() {}
 
   final SettingsButtonEventHandler settingsButtonEventHandler =
-      const SettingsButtonEventHandler();
+      const SettingsButtonEventHandler(DefaultSettingsMenuSpawner());
 }
