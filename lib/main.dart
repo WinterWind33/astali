@@ -1,23 +1,13 @@
 // Copyright (C) 2022 Andrea Ballestrazzi
 
-import 'package:astali/settings_menu_spawner.dart';
 import 'package:flutter/material.dart';
-import 'package:astali/settings_button_event_handler.dart';
+
+import 'default_settings_menu_spawner.dart';
+import 'default_settings_menu_event_handler.dart';
+import 'settings_button_event_handler.dart';
 
 void main() {
   runApp(const AstaliApp());
-}
-
-class DefaultSettingsMenuSpawner implements SettingsMenuSpawner {
-  const DefaultSettingsMenuSpawner();
-
-  @override
-  void spawnSettingsMenu(BuildContext context) {
-    showMenu(
-        context: context,
-        position: const RelativeRect.fromLTRB(100, 100, 200, 200),
-        items: [const PopupMenuItem<int>(value: 0, child: Text("About"))]);
-  }
 }
 
 class AstaliApp extends StatelessWidget {
@@ -29,13 +19,32 @@ class AstaliApp extends StatelessWidget {
   }
 }
 
-class AstaliAppHome extends StatelessWidget {
+class AstaliAppHome extends StatefulWidget {
   const AstaliAppHome({super.key});
+
+  @override
+  State<AstaliAppHome> createState() => _AstaliAppHomeState();
+}
+
+class _AstaliAppHomeState extends State<AstaliAppHome> {
+  _AstaliAppHomeState()
+      : settingsMenuSpawner = DefaultSettingsMenuSpawner(
+            const DefaultSettingsMenuEventHandlerImpl()) {
+    settingsButtonEventHandler =
+        SettingsButtonEventHandler(settingsMenuSpawner);
+  }
 
   @override
   Widget build(BuildContext context) {
     // We want to add the main application toolbar where we can access
     // settings and the about section.
+    settingsIconButtonKey = GlobalKey();
+
+    settingsIconButton = IconButton(
+        key: settingsIconButtonKey,
+        icon: const Icon(Icons.settings, color: Colors.white),
+        onPressed: () => onSettingsButtonPressed(context));
+
     Widget titleSection = Container(
         color: Colors.blue,
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -47,11 +56,7 @@ class AstaliAppHome extends StatelessWidget {
                 children: [
                   Container(
                       padding: const EdgeInsets.only(right: 8),
-                      child: IconButton(
-                        icon: const Icon(Icons.settings, color: Colors.white),
-                        onPressed: () =>
-                            settingsButtonEventHandler.onPressed(context),
-                      ))
+                      child: settingsIconButton)
                 ],
               ),
             ),
@@ -65,6 +70,18 @@ class AstaliAppHome extends StatelessWidget {
         ));
   }
 
-  final SettingsButtonEventHandler settingsButtonEventHandler =
-      const SettingsButtonEventHandler(DefaultSettingsMenuSpawner());
+  void onSettingsButtonPressed(BuildContext context) {
+    RenderBox box =
+        settingsIconButtonKey!.currentContext!.findRenderObject() as RenderBox;
+    Offset position = box.localToGlobal(Offset.zero);
+    settingsMenuSpawner.menuPosition = RelativeRect.fromLTRB(
+        position.dx, position.dy, position.dx, position.dy);
+
+    settingsButtonEventHandler!.onPressed(context);
+  }
+
+  DefaultSettingsMenuSpawner settingsMenuSpawner;
+  SettingsButtonEventHandler? settingsButtonEventHandler;
+  IconButton? settingsIconButton;
+  GlobalKey? settingsIconButtonKey;
 }
