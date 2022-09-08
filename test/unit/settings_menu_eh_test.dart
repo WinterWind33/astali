@@ -7,8 +7,8 @@ import 'package:astali/settings/settings_button_event_handler.dart';
 import 'package:mockito/mockito.dart';
 
 // Test Doubles
-import 'settings_menu_eh_test.mocks.dart';
-import 'dummy_build_context.dart';
+import '../settings_menu_eh_test.mocks.dart';
+import '../dummy_build_context.dart';
 
 @GenerateMocks([SettingsMenuSpawner])
 void main() {
