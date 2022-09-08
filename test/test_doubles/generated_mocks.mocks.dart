@@ -3,9 +3,10 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'package:astali/settings/default_settings_menu_spawner.dart' as _i4;
+import 'package:astali/astali_injector.dart' as _i3;
+import 'package:astali/settings/default_settings_menu_spawner.dart' as _i5;
 import 'package:astali/settings/settings_menu_spawner.dart' as _i2;
-import 'package:flutter/material.dart' as _i3;
+import 'package:flutter/material.dart' as _i4;
 import 'package:mockito/mockito.dart' as _i1;
 
 // ignore_for_file: type=lint
@@ -19,6 +20,28 @@ import 'package:mockito/mockito.dart' as _i1;
 // ignore_for_file: camel_case_types
 // ignore_for_file: subtype_of_sealed_class
 
+class _FakeSettingsMenuSpawner_0 extends _i1.SmartFake
+    implements _i2.SettingsMenuSpawner {
+  _FakeSettingsMenuSpawner_0(Object parent, Invocation parentInvocation)
+      : super(parent, parentInvocation);
+}
+
+/// A class which mocks [AstaliInjector].
+///
+/// See the documentation for Mockito's code generation for more information.
+class MockAstaliInjector extends _i1.Mock implements _i3.AstaliInjector {
+  MockAstaliInjector() {
+    _i1.throwOnMissingStub(this);
+  }
+
+  @override
+  _i2.SettingsMenuSpawner getSettingsMenuSpawner() =>
+      (super.noSuchMethod(Invocation.method(#getSettingsMenuSpawner, []),
+              returnValue: _FakeSettingsMenuSpawner_0(
+                  this, Invocation.method(#getSettingsMenuSpawner, [])))
+          as _i2.SettingsMenuSpawner);
+}
+
 /// A class which mocks [SettingsMenuSpawner].
 ///
 /// See the documentation for Mockito's code generation for more information.
@@ -29,7 +52,7 @@ class MockSettingsMenuSpawner extends _i1.Mock
   }
 
   @override
-  void spawnSettingsMenu(_i3.BuildContext? context) =>
+  void spawnSettingsMenu(_i4.BuildContext? context) =>
       super.noSuchMethod(Invocation.method(#spawnSettingsMenu, [context]),
           returnValueForMissingStub: null);
 }
@@ -38,7 +61,7 @@ class MockSettingsMenuSpawner extends _i1.Mock
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockDefaultSettingsMenuEventHandler extends _i1.Mock
-    implements _i4.DefaultSettingsMenuEventHandler {
+    implements _i5.DefaultSettingsMenuEventHandler {
   MockDefaultSettingsMenuEventHandler() {
     _i1.throwOnMissingStub(this);
   }
