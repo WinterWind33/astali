@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:mockito/annotations.dart';
 
 // Production classes
-import 'package:astali/default_settings_menu_spawner.dart';
+import 'package:astali/settings/default_settings_menu_spawner.dart';
 import 'package:astali/main.dart';
 
 @GenerateMocks([DefaultSettingsMenuEventHandler])
