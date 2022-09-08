@@ -3,14 +3,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 
-// Mockito
-import 'package:mockito/annotations.dart';
-
 // Production classes
-import 'package:astali/settings/default_settings_menu_spawner.dart';
 import 'package:astali/main.dart';
 
-@GenerateMocks([DefaultSettingsMenuEventHandler])
 void main() {
   testWidgets("The default settings menu should have an 'About' section",
       (tester) async {

@@ -1,16 +1,13 @@
 // Copyright (C) 2022 Andrea Ballestrazzi
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/annotations.dart';
-import 'package:astali/settings/settings_menu_spawner.dart';
 import 'package:astali/settings/settings_button_event_handler.dart';
 import 'package:mockito/mockito.dart';
 
 // Test Doubles
-import '../settings_menu_eh_test.mocks.dart';
-import '../dummy_build_context.dart';
+import '../test_doubles/generated_mocks.mocks.dart';
+import '../test_doubles/dummy_build_context.dart';
 
-@GenerateMocks([SettingsMenuSpawner])
 void main() {
   group("When onPressed() is called", () {
     final DummyBuildContext dummyBC = DummyBuildContext();
