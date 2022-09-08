@@ -2,8 +2,8 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
-import 'package:astali/settings_menu_spawner.dart';
-import 'package:astali/settings_button_event_handler.dart';
+import 'package:astali/settings/settings_menu_spawner.dart';
+import 'package:astali/settings/settings_button_event_handler.dart';
 import 'package:mockito/mockito.dart';
 
 // Test Doubles

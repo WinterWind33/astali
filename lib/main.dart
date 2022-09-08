@@ -2,9 +2,9 @@
 
 import 'package:flutter/material.dart';
 
-import 'default_settings_menu_spawner.dart';
-import 'default_settings_menu_event_handler.dart';
-import 'settings_button_event_handler.dart';
+import 'settings/default_settings_menu_spawner.dart';
+import 'settings/default_settings_menu_event_handler.dart';
+import 'settings/settings_button_event_handler.dart';
 
 void main() {
   runApp(const AstaliApp());

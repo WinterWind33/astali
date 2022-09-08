@@ -3,7 +3,7 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'package:astali/settings_menu_spawner.dart' as _i2;
+import 'package:astali/settings/settings_menu_spawner.dart' as _i2;
 import 'package:flutter/material.dart' as _i3;
 import 'package:mockito/mockito.dart' as _i1;
 

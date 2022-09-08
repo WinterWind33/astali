@@ -1,6 +1,6 @@
 // Copyright (C) 2022 Andrea Ballestrazzi
 
-import 'package:astali/settings_menu_spawner.dart';
+import 'package:astali/settings/settings_menu_spawner.dart';
 import 'package:flutter/material.dart';
 
 class SettingsButtonEventHandler {
