@@ -1,7 +1,9 @@
 // Copyright (C) 2022 Andrea Ballestrazzi
+
 import 'package:flutter/material.dart';
 
 import 'astali_injector.dart';
+import 'settings/settings_items_event_handler.dart';
 
 class AstaliAppHome extends StatefulWidget {
   const AstaliAppHome(AstaliInjector injector, {super.key})
@@ -60,14 +62,18 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
   }
 
   Widget createSettingsMenuButton() {
+    final mainInjector = widget.mainInjector;
+    final eventHandler = mainInjector.getSettingsItemsEventHandler();
+
     return PopupMenuButton(
       icon: const Icon(Icons.settings),
       color: Colors.white,
       itemBuilder: (context) {
         return [
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 1,
-            child: Text("About"),
+            onTap: () => eventHandler.onAboutClicked(context),
+            child: const Text("About"),
           )
         ];
       },
