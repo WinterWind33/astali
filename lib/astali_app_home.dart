@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 
 import 'astali_injector.dart';
-import 'settings/settings_items_event_handler.dart';
 
 class AstaliAppHome extends StatefulWidget {
   const AstaliAppHome(AstaliInjector injector, {super.key})
@@ -66,7 +65,7 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     final eventHandler = mainInjector.getSettingsItemsEventHandler();
 
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.settings),
+      icon: const Icon(Icons.settings, color: Colors.white),
       color: Colors.white,
       onSelected: (value) {
         switch (value) {
