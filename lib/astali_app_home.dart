@@ -65,15 +65,21 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     final mainInjector = widget.mainInjector;
     final eventHandler = mainInjector.getSettingsItemsEventHandler();
 
-    return PopupMenuButton(
+    return PopupMenuButton<String>(
       icon: const Icon(Icons.settings),
       color: Colors.white,
+      onSelected: (value) {
+        switch (value) {
+          case "About":
+            eventHandler.onAboutClicked(context);
+            break;
+        }
+      },
       itemBuilder: (context) {
         return [
-          PopupMenuItem(
-            value: 1,
-            onTap: () => eventHandler.onAboutClicked(context),
-            child: const Text("About"),
+          const PopupMenuItem(
+            value: "About",
+            child: Text("About"),
           )
         ];
       },
