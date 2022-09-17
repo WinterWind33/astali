@@ -16,4 +16,13 @@ void main() {
 
     expect(settingsButtonFinder, findsOneWidget);
   });
+
+  testWidgets("The home user interface should have only one Add Card button",
+      (tester) async {
+    await tester.pumpWidget(const AstaliApp(AstaliMainInjector()));
+
+    final addButtonFinder = find.byIcon(Icons.add);
+
+    expect(addButtonFinder, findsOneWidget);
+  });
 }

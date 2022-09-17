@@ -21,4 +21,19 @@ void main() {
     // We should have only one widget with the title "About".
     expect(aboutItemFinder, findsOneWidget);
   });
+
+  testWidgets(
+      "When a click is done on the 'About' section, it should be displayed the about dialog",
+      (tester) async {
+    await tester.pumpWidget(const AstaliApp(AstaliMainInjector()));
+
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(PopupMenuItem<String>, "About"));
+    await tester.pumpAndSettle();
+
+    final aboutDialogFinder = find.byType(AboutDialog);
+
+    expect(aboutDialogFinder, findsOneWidget);
+  });
 }
