@@ -9,12 +9,12 @@ class AstaliApp extends StatelessWidget {
   /// Constructor: it expects an injector that will be used by the application
   /// to retrieve the main objects used by the application.
   const AstaliApp(AstaliInjector injector, {super.key})
-      : mainInjector = injector;
+      : _mainInjector = injector;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(title: 'Astali', home: AstaliAppHome(mainInjector));
+    return MaterialApp(title: 'Astali', home: AstaliAppHome(_mainInjector));
   }
 
-  final AstaliInjector mainInjector;
+  final AstaliInjector _mainInjector;
 }
