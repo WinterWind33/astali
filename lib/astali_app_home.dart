@@ -4,7 +4,12 @@ import 'package:flutter/material.dart';
 
 import 'astali_injector.dart';
 
+/// Represents the home UI widget.
+///
+/// It contains all of the child widget that the user can tap or interact with.
+/// It builds up the main user interface.
 class AstaliAppHome extends StatefulWidget {
+  /// Accepts an injector used to retrieve objects used as callbacks for events.
   const AstaliAppHome(AstaliInjector injector, {super.key})
       : mainInjector = injector;
 
@@ -14,6 +19,9 @@ class AstaliAppHome extends StatefulWidget {
   final AstaliInjector mainInjector;
 }
 
+/// Represents the main state of the AstaliAppHome widget.
+///
+/// Builds up the main user interface.
 class _AstaliAppHomeState extends State<AstaliAppHome> {
   @override
   Widget build(BuildContext context) {
@@ -24,6 +32,9 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     );
   }
 
+  /// Creates the floating action button with the '+' icon to add a new card
+  ///
+  /// NOTE: No events are attached for now.
   FloatingActionButton createAddCardButton() {
     return FloatingActionButton(
       onPressed: () {},
@@ -32,6 +43,7 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     );
   }
 
+  /// Creates the body of the main user interface.
   Widget createHomeBody() {
     return Column(children: [
       Container(
@@ -50,6 +62,9 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     ]);
   }
 
+  /// Creates a bottom navigation bar.
+  ///
+  /// NOTES: Unused for now.
   Widget createHomeBottomNavigationBar() {
     return const BottomAppBar(
       shape: CircularNotchedRectangle(),
@@ -60,6 +75,9 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     );
   }
 
+  /// Creates a button that accesses the settings menu.
+  ///
+  /// Builds up also the items inside the settings menu.
   Widget createSettingsMenuButton() {
     final mainInjector = widget.mainInjector;
     final eventHandler = mainInjector.getSettingsItemsEventHandler();
