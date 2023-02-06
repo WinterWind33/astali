@@ -1,5 +1,10 @@
 // Copyright (C) 2022 Andrea Ballestrazzi
 
+// Cards management
+import 'cards-management/user-interface/add_card_button_event_handler.dart';
+import 'cards-management/user-interface/add_card_button_event_handler_impl.dart';
+
+// Settings
 import 'settings/settings_items_event_handler.dart';
 import 'settings/settings_items_event_handler_impl.dart';
 
@@ -12,5 +17,10 @@ class AstaliMainInjector implements AstaliInjector {
   @override
   SettingsItemsEventHandler getSettingsItemsEventHandler() {
     return const SettingsItemsEventHandlerImpl();
+  }
+
+  @override
+  AddCardButtonEventHandler getAddCardButtonEventHandler() {
+    return const AddCardButtonEventHandlerImpl();
   }
 }

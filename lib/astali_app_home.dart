@@ -36,8 +36,14 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
   ///
   /// NOTE: No events are attached for now.
   FloatingActionButton createAddCardButton() {
+    final mainInjector = widget.mainInjector;
+    final addCardButtonEventHandler =
+        mainInjector.getAddCardButtonEventHandler();
+
     return FloatingActionButton(
-      onPressed: () {},
+      onPressed: () {
+        addCardButtonEventHandler.onAddCardClicked(context);
+      },
       tooltip: "Add a card",
       child: const Icon(Icons.add),
     );
