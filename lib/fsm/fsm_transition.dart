@@ -3,25 +3,28 @@
 import 'fsm_state.dart';
 
 abstract class FSMStateResolver<SymbolType> {
-  FSMState<SymbolType>? getState(final SymbolType stateName);
+  FSMState<SymbolType> getState(final SymbolType stateName);
+  Set<SymbolType> getAlphabet();
 }
 
 
-class FSMTransition<SymbolType> {
-  FSMTransition(FSMState<SymbolType> startingState, final FSMStateResolver<SymbolType> stateResolver) :
-    _startingState = startingState,
+abstract class FSMTransition<SymbolType> {
+  FSMState<SymbolType> execute(FSMState<SymbolType> startingState, final SymbolType finalStateName);
+}
+
+class FSMSimpleTransition<SymbolType> implements FSMTransition<SymbolType> {
+  FSMSimpleTransition(final FSMStateResolver<SymbolType> stateResolver) :
     _stateResolver = stateResolver;
 
-  FSMState<SymbolType> execute(final SymbolType finalStateName) {
-    FSMState<SymbolType>? finalState = _stateResolver.getState(finalStateName);
-    assert(finalState != null);
+  @override
+  FSMState<SymbolType> execute(FSMState<SymbolType> startingState, final SymbolType finalStateName) {
+    FSMState<SymbolType> finalState = _stateResolver.getState(finalStateName);
 
-    _startingState.onStateLeave();
-    finalState!.onStateEnter();
+    startingState.onStateLeave();
+    finalState.onStateEnter();
 
     return finalState;
   }
 
-  FSMState<SymbolType> _startingState;
   final FSMStateResolver<SymbolType> _stateResolver;
 }
