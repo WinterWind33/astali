@@ -1,5 +1,10 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
+import 'package:astali/fsm/finite_state_machine.dart';
+import 'package:astali/fsm/fsm_transition.dart';
+
+import 'finite-state-machines/bulletin_board_fsm.dart';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -41,16 +46,35 @@ class BulletinBoardScene extends StatefulWidget {
 }
 
 class _BulletinBoardState extends State<BulletinBoardScene> {
+  final BulletinBoardFSMStateResolver _bulletinBoardFSMResolver = BulletinBoardFSMStateResolver();
+  BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _bulletinBoardFSM = BulletinBoardNonDeterministicFSM(_bulletinBoardFSMResolver.getState(BulletinBoardFSMStateName.idle));
+  }
+
+  @override
+  void dispose() {
+    // We need the board to go to the idle state before being disposed.
+    _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.idle);
+    super.dispose();
+  }
+
   @override
   Widget build(Object context) {
-    return MouseRegion(
-      onHover: _onMouseHover,
+    return Listener(
+      onPointerMove: _onMouseHover,
       child: BulletinBoardScenePresentation(onCardAddEvent: _onCardAddEvent),
     );
   }
 
-  void _onCardAddEvent() {}
+  void _onCardAddEvent() {
+    _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.creatingCard);
+  }
 
-  void _onMouseHover(PointerHoverEvent pointerHoverEvent) {}
+  void _onMouseHover(PointerMoveEvent pointerHoverEvent) {}
 
 }

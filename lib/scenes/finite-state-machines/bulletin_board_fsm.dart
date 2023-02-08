@@ -67,4 +67,4 @@ class BulletinBoardFSMStateResolver implements FSMStateResolver<BulletinBoardFSM
 
 }
 
-typedef BulletinBoardNonDeterministicFSM = FiniteStateMachine<BulletinBoardFSMStateName>;
+typedef BulletinBoardNonDeterministicFSM = NonDeterministicFSM<BulletinBoardFSMStateName>;
