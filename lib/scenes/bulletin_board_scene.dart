@@ -17,10 +17,17 @@ class BulletinBoardScenePresentation extends StatelessWidget {
     );
   }
 
+  Widget _createBody() {
+    return Container(
+        color: const Color.fromARGB(255, 156, 111, 62),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       floatingActionButton: _createAddCardButton(),
+      body: _createBody(),
     );
   }
 }
