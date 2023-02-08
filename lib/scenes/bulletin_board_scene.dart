@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 typedef OnCardAddEvent = VoidCallback;
 
-class BulletinBoardScene extends StatelessWidget {
-  const BulletinBoardScene({required this.onCardAddEvent, super.key});
+class BulletinBoardScenePresentation extends StatelessWidget {
+  const BulletinBoardScenePresentation({required this.onCardAddEvent, super.key});
 
   final OnCardAddEvent onCardAddEvent;
 
