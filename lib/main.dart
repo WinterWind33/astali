@@ -1,10 +1,8 @@
-// Copyright (C) 2022 Andrea Ballestrazzi
+// Copyright (C) 2023 Andrea Ballestrazzi
+import 'astali_app.dart';
 
 import 'package:flutter/material.dart';
 
-import 'astali_app.dart';
-import 'astali_main_injector.dart';
-
 void main() {
-  runApp(const AstaliApp(AstaliMainInjector()));
+  runApp(const AstaliApp());
 }

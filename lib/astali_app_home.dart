@@ -1,8 +1,68 @@
-// Copyright (C) 2022 Andrea Ballestrazzi
+// Copyright (C) 2023 Andrea Ballestrazzi
+import 'package:astali/settings/settings_items_event_handler_impl.dart';
+
+import 'scenes/bulletin_board_scene.dart';
 
 import 'package:flutter/material.dart';
 
-import 'astali_injector.dart';
+typedef OnAboutItemClicked = VoidCallback;
+
+/// Represents a set of callbacks used inside the presentation
+/// of the astali app home.
+class ScenesCommonCallbacks {
+  const ScenesCommonCallbacks({
+    required this.onAboutButtonClicked});
+
+  // When the 'About' button is clicked inside the settings menu.
+  final OnAboutItemClicked onAboutButtonClicked;
+}
+
+class AstaliAppHomePresentation extends StatelessWidget {
+  const AstaliAppHomePresentation({
+    required this.commonCallbacks,
+    super.key});
+
+  final ScenesCommonCallbacks commonCallbacks;
+
+  /// Creates the body of the main user interface.
+  AppBar _createSceneTopBar() {
+    return AppBar(
+      title: const Text("Bulletin Board"),
+      backgroundColor: Colors.blue,
+      actions: <Widget>[
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.settings),
+          tooltip: "Settings",
+          onSelected: (value) {
+            switch (value) {
+              case "About":
+                commonCallbacks.onAboutButtonClicked();
+                break;
+              default:
+            }
+          },
+          itemBuilder: (context) {
+            return [
+              const PopupMenuItem<String>(
+                value: "About",
+                child: Text("About")
+              )
+            ];
+          },
+        )
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: _createSceneTopBar(),
+      body: const BulletinBoardScene(),
+    );
+  }
+
+}
 
 /// Represents the home UI widget.
 ///
@@ -10,102 +70,29 @@ import 'astali_injector.dart';
 /// It builds up the main user interface.
 class AstaliAppHome extends StatefulWidget {
   /// Accepts an injector used to retrieve objects used as callbacks for events.
-  const AstaliAppHome(AstaliInjector injector, {super.key})
-      : mainInjector = injector;
+  const AstaliAppHome({super.key});
 
   @override
   State<AstaliAppHome> createState() => _AstaliAppHomeState();
-
-  final AstaliInjector mainInjector;
 }
 
 /// Represents the main state of the AstaliAppHome widget.
 ///
 /// Builds up the main user interface.
 class _AstaliAppHomeState extends State<AstaliAppHome> {
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      floatingActionButton: createAddCardButton(),
-      body: createHomeBody(),
-      bottomNavigationBar: createHomeBottomNavigationBar(),
-    );
-  }
-
-  /// Creates the floating action button with the '+' icon to add a new card
-  ///
-  /// NOTE: No events are attached for now.
-  FloatingActionButton createAddCardButton() {
-    final mainInjector = widget.mainInjector;
-    final addCardButtonEventHandler =
-        mainInjector.getAddCardButtonEventHandler();
-
-    return FloatingActionButton(
-      onPressed: () {
-        addCardButtonEventHandler.onAddCardClicked(context);
-      },
-      tooltip: "Add a card",
-      child: const Icon(Icons.add),
-    );
-  }
-
-  /// Creates the body of the main user interface.
-  Widget createHomeBody() {
-    return Column(children: [
-      Container(
-        color: Colors.blue,
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [createSettingsMenuButton()],
-              ),
-            ),
-          ],
-        ),
-      )
-    ]);
-  }
-
-  /// Creates a bottom navigation bar.
-  ///
-  /// NOTES: Unused for now.
-  Widget createHomeBottomNavigationBar() {
-    return const BottomAppBar(
-      shape: CircularNotchedRectangle(),
-      color: Colors.white60,
-      child: SizedBox(
-        height: 50.0,
+    return AstaliAppHomePresentation(
+      commonCallbacks: ScenesCommonCallbacks(
+        onAboutButtonClicked: _onAboutItemClicked
       ),
     );
   }
 
-  /// Creates a button that accesses the settings menu.
-  ///
-  /// Builds up also the items inside the settings menu.
-  Widget createSettingsMenuButton() {
-    final mainInjector = widget.mainInjector;
-    final eventHandler = mainInjector.getSettingsItemsEventHandler();
+  void _onAboutItemClicked() {
+    SettingsItemsEventHandlerImpl impl = const SettingsItemsEventHandlerImpl();
 
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.settings, color: Colors.white),
-      color: Colors.white,
-      onSelected: (value) {
-        switch (value) {
-          case "About":
-            eventHandler.onAboutClicked(context);
-            break;
-        }
-      },
-      itemBuilder: (context) {
-        return [
-          const PopupMenuItem(
-            value: "About",
-            child: Text("About"),
-          )
-        ];
-      },
-    );
+    impl.onAboutClicked(context);
   }
 }
