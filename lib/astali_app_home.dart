@@ -84,13 +84,6 @@ class AstaliAppHome extends StatefulWidget {
 class _AstaliAppHomeState extends State<AstaliAppHome> {
 
   @override
-  void initState() {
-    super.initState();
-
-    initializeLicenses();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return AstaliAppHomePresentation(
       commonCallbacks: ScenesCommonCallbacks(
