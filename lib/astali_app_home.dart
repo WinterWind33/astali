@@ -1,8 +1,10 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
-import 'package:astali/settings/settings_items_event_handler_impl.dart';
-
 import 'scenes/bulletin_board_scene.dart';
 
+// Settings
+import 'settings/astali_about_dialog.dart';
+
+// Core and engine
 import 'package:flutter/material.dart';
 
 typedef OnAboutItemClicked = VoidCallback;
@@ -82,6 +84,13 @@ class AstaliAppHome extends StatefulWidget {
 class _AstaliAppHomeState extends State<AstaliAppHome> {
 
   @override
+  void initState() {
+    super.initState();
+
+    initializeLicenses();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AstaliAppHomePresentation(
       commonCallbacks: ScenesCommonCallbacks(
@@ -91,8 +100,6 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
   }
 
   void _onAboutItemClicked() {
-    SettingsItemsEventHandlerImpl impl = const SettingsItemsEventHandlerImpl();
-
-    impl.onAboutClicked(context);
+    showAstaliAboutDialog(context);
   }
 }
