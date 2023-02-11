@@ -2,22 +2,19 @@
 
 // Astali cards
 import 'package:astali/cards-management/user-interface/cards/bulletin_board_card.dart';
+import 'package:astali/input-management/pointer_events.dart';
 
 // FSM
-import 'package:astali/fsm/finite_state_machine.dart';
-import 'package:astali/fsm/fsm_transition.dart';
 import 'finite-state-machines/bulletin_board_fsm.dart';
 
 // Core and engine
-import 'dart:math';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 typedef OnCardAddEvent = VoidCallback;
-typedef OnPointerHoverEvent = void Function(PointerHoverEvent);
-typedef OnPointerUpEvent = void Function(PointerUpEvent);
-typedef OnPointerDownEvent = void Function(PointerDownEvent);
 
+/// Rerepresents a set of pointer callbacks used within
+/// the bulletin board scene.
 class BulletinBoardScenePointerEvents {
   const BulletinBoardScenePointerEvents({
     required this.onPointerHoverEvent,
@@ -81,19 +78,16 @@ class BulletinBoardScene extends StatefulWidget {
 }
 
 class _BulletinBoardState extends State<BulletinBoardScene> {
-  final BulletinBoardFSMStateResolver _bulletinBoardFSMResolver = BulletinBoardFSMStateResolver();
-  BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
-
+  final BulletinBoardNonDeterministicFSM _bulletinBoardFSM = BulletinBoardNonDeterministicFSM();
   final List<BulletinBoardCard> _bulletinCards = List<BulletinBoardCard>.empty(growable: true);
 
   BulletinBoardScenePointerEvents? _pointerEvents;
-  Point<double> _currentMousePos = const Point<double>(0.0, 0.0);
+  MousePoint _currentMousePos = const MousePoint(0.0, 0.0);
 
   @override
   void initState() {
     super.initState();
 
-    _bulletinBoardFSM = BulletinBoardNonDeterministicFSM(_bulletinBoardFSMResolver.getState(BulletinBoardFSMStateName.idle));
     _pointerEvents = BulletinBoardScenePointerEvents(
       onPointerHoverEvent: _onMouseHover,
       onPointerUpEvent: _onMouseUp,
@@ -103,7 +97,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   @override
   void dispose() {
     // We need the board to go to the idle state before being disposed.
-    _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.idle);
+    _bulletinBoardFSM.transitToIdleMode();
     super.dispose();
   }
 
@@ -115,15 +109,23 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
         cardsToRender: _bulletinCards);
   }
 
+  void _removeCreatingCard() {
+    _bulletinCards.removeLast();
+  }
+
+  void _updateCreatingCard(MousePoint newPoint) {
+    _bulletinCards.last = BulletinBoardCard(cardPosition: newPoint);
+  }
+
   void _onCardAddEvent() {
-    if(!isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.idle)) {
+    if(!_bulletinBoardFSM.isInIdleMode()) {
       // The previous card was spawning and the user didn't confirm it. We can
       // erase that card.
       // The card is always the last inside this list.
-      _bulletinCards.removeLast();
+      _removeCreatingCard();
     }
 
-    _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.creatingCard);
+    _bulletinBoardFSM.transitToCreatingCardMode();
 
     setState(() {
       _bulletinCards.add(BulletinBoardCard(cardPosition: _currentMousePos));
@@ -133,34 +135,33 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   void _onMouseHover(PointerHoverEvent pointerHoverEvent) {
     // We retrieve the mouse position independently from the current FSM state.
     final Offset localPosition = pointerHoverEvent.localPosition;
-    _currentMousePos = Point<double>(localPosition.dx, localPosition.dy);
+    _currentMousePos = MousePoint(localPosition.dx, localPosition.dy);
 
-    if(isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
+    if(_bulletinBoardFSM.isInCreatingCardMode()) {
       setState(() {
-          _bulletinCards.last = BulletinBoardCard(cardPosition: _currentMousePos);
+          _updateCreatingCard(_currentMousePos);
         }
       );
     }
   }
 
   void _onPointerDown(PointerDownEvent pointerDownEvent) {
-    if(pointerDownEvent.buttons == kSecondaryMouseButton &&
-      isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
+    if(isRightMouseButton(pointerDownEvent.buttons) && _bulletinBoardFSM.isInCreatingCardMode()) {
       // The user requested to cancel the card creation.
-      _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.idle);
+      _bulletinBoardFSM.transitToIdleMode();
 
       setState(() {
-        _bulletinCards.removeLast();
+        _removeCreatingCard();
       });
     }
   }
 
   void _onMouseUp(PointerUpEvent pointerUpEvent) {
-    if(isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
-      _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.idle);
+    if(_bulletinBoardFSM.isInCreatingCardMode()) {
+      _bulletinBoardFSM.transitToIdleMode();
 
       setState(() {
-        _bulletinCards.last = BulletinBoardCard(cardPosition: _currentMousePos);
+        _updateCreatingCard(_currentMousePos);
       });
     }
   }

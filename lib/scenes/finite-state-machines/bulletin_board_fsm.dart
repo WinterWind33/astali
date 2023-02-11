@@ -1,6 +1,6 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
-// Core dependencies
+// FSM
 import 'package:astali/fsm/fsm_state.dart';
 import 'package:astali/fsm/fsm_transition.dart';
 import 'package:astali/fsm/finite_state_machine.dart';
@@ -67,4 +67,40 @@ class BulletinBoardFSMStateResolver implements FSMStateResolver<BulletinBoardFSM
 
 }
 
-typedef BulletinBoardNonDeterministicFSM = NonDeterministicFSM<BulletinBoardFSMStateName>;
+class BulletinBoardNonDeterministicFSM extends NonDeterministicFSM<BulletinBoardFSMStateName> implements FSMStateResolver<BulletinBoardFSMStateName> {
+  BulletinBoardNonDeterministicFSM() :
+    _fsmStates = {
+      BulletinBoardFSMStateName.idle: BulletinBoardIdleFSMState(),
+      BulletinBoardFSMStateName.creatingCard: BulletinBoardCreatingCardFSMState()
+    },
+    super(BulletinBoardIdleFSMState());
+
+  @override
+  Set<BulletinBoardFSMStateName> getAlphabet() {
+    return _fsmStates.keys.toSet();
+  }
+
+  @override
+  FSMState<BulletinBoardFSMStateName> getState(BulletinBoardFSMStateName stateName) {
+    assert(_fsmStates.containsKey(stateName));
+    return _fsmStates[stateName]!;
+  }
+
+  bool isInIdleMode() {
+    return isInState(this, BulletinBoardFSMStateName.idle);
+  }
+
+  bool isInCreatingCardMode() {
+    return isInState(this, BulletinBoardFSMStateName.creatingCard);
+  }
+
+  void transitToIdleMode() {
+    transit(FSMSimpleTransition(this), BulletinBoardFSMStateName.idle);
+  }
+
+  void transitToCreatingCardMode() {
+    transit(FSMSimpleTransition(this), BulletinBoardFSMStateName.creatingCard);
+  }
+
+  final Map<BulletinBoardFSMStateName, BulletinBoardFSMState> _fsmStates;
+}
