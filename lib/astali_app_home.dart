@@ -1,4 +1,6 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
+
+// Scenes
 import 'scenes/bulletin_board_scene.dart';
 
 // Settings
@@ -71,7 +73,6 @@ class AstaliAppHomePresentation extends StatelessWidget {
 /// It contains all of the child widget that the user can tap or interact with.
 /// It builds up the main user interface.
 class AstaliAppHome extends StatefulWidget {
-  /// Accepts an injector used to retrieve objects used as callbacks for events.
   const AstaliAppHome({super.key});
 
   @override
