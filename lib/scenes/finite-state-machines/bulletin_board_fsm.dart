@@ -1,5 +1,10 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
+import 'package:astali/cards-management/user-interface/cards/bulletin_board_card.dart';
+
+import 'package:astali/input-management/pointer_events.dart';
+import 'package:flutter/gestures.dart';
+
 // FSM
 import 'package:astali/fsm/fsm_state.dart';
 import 'package:astali/fsm/fsm_transition.dart';
@@ -12,59 +17,59 @@ enum BulletinBoardFSMStateName {
   creatingCard
 }
 
-typedef BulletinBoardFSMState = FSMState<BulletinBoardFSMStateName>;
-
-class BulletinBoardIdleFSMState implements BulletinBoardFSMState {
-  @override
-  BulletinBoardFSMStateName getStateName() {
-    return BulletinBoardFSMStateName.idle;
-  }
-
-  @override
-  void onStateEnter() {
-  }
-
-  @override
-  void onStateLeave() {
-  }
+abstract class BulletinBoardFSMState extends FSMState<BulletinBoardFSMStateName> {
+  void setBulletinCardsList(List<BulletinBoardCard> cards);
+  void onPointerHover(PointerHoverEvent pointerHoverEvent);
+  void onPointerUp(PointerUpEvent pointerUpEvent);
+  void onPointerDown(PointerDownEvent pointerDownEvent);
+  void onAddCardEvent();
 }
 
-class BulletinBoardCreatingCardFSMState implements BulletinBoardFSMState {
+class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
+  BulletinBoardEmptyFSMState(BulletinBoardFSMStateName stateName) :
+    _cardsList = List.empty(),
+    _stateName = stateName;
+
   @override
   BulletinBoardFSMStateName getStateName() {
-    return BulletinBoardFSMStateName.creatingCard;
+    return _stateName;
   }
 
   @override
-  void onStateEnter() {
-  }
+  void onAddCardEvent() {}
 
   @override
-  void onStateLeave() {
+  void onPointerDown(PointerDownEvent pointerDownEvent) {}
+
+  @override
+  void onPointerHover(PointerHoverEvent pointerHoverEvent) {}
+
+  @override
+  void onPointerUp(PointerUpEvent pointerUpEvent) {}
+
+  @override
+  void onStateEnter() {}
+
+  @override
+  void onStateLeave() {}
+
+  @override
+  void setBulletinCardsList(List<BulletinBoardCard> cards) {
+    _cardsList = cards;
   }
+
+  final BulletinBoardFSMStateName _stateName;
+  List<BulletinBoardCard> _cardsList;
 }
 
-class BulletinBoardFSMStateResolver implements FSMStateResolver<BulletinBoardFSMStateName> {
-  BulletinBoardFSMStateResolver() :
-    _alphabet = BulletinBoardFSMStateName.values.toSet();
+class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
+  BulletinBoardIdleFSMState() :
+    super(BulletinBoardFSMStateName.idle);
+}
 
-  @override
-  Set<BulletinBoardFSMStateName> getAlphabet() {
-    return _alphabet;
-  }
-
-  @override
-  FSMState<BulletinBoardFSMStateName> getState(BulletinBoardFSMStateName stateName) {
-    switch (stateName) {
-      case BulletinBoardFSMStateName.creatingCard:
-        return BulletinBoardCreatingCardFSMState();
-      default:
-        return BulletinBoardIdleFSMState();
-    }
-  }
-
-  final Set<BulletinBoardFSMStateName> _alphabet;
-
+class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
+  BulletinBoardCreatingCardFSMState() :
+    super(BulletinBoardFSMStateName.creatingCard);
 }
 
 class BulletinBoardNonDeterministicFSM extends NonDeterministicFSM<BulletinBoardFSMStateName> implements FSMStateResolver<BulletinBoardFSMStateName> {
@@ -73,7 +78,19 @@ class BulletinBoardNonDeterministicFSM extends NonDeterministicFSM<BulletinBoard
       BulletinBoardFSMStateName.idle: BulletinBoardIdleFSMState(),
       BulletinBoardFSMStateName.creatingCard: BulletinBoardCreatingCardFSMState()
     },
-    super(BulletinBoardIdleFSMState());
+    super(DeferredInitializationFSMState());
+
+  BulletinBoardFSMState getCurrentState() {
+    return _fsmStates[getCurrentStateName()]!;
+  }
+
+  void initialize(List<BulletinBoardCard> boardCardsList) {
+    transit(FSMTransitionToInitialState<BulletinBoardFSMStateName>(this), BulletinBoardFSMStateName.idle);
+
+    _fsmStates.forEach((key, state) {
+      state.setBulletinCardsList(boardCardsList);
+    });
+  }
 
   @override
   Set<BulletinBoardFSMStateName> getAlphabet() {

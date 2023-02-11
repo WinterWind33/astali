@@ -92,6 +92,8 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
       onPointerHoverEvent: _onMouseHover,
       onPointerUpEvent: _onMouseUp,
       onPointerDownEvent: _onPointerDown);
+
+    _bulletinBoardFSM.initialize(_bulletinCards);
   }
 
   @override
