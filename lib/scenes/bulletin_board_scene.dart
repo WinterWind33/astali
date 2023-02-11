@@ -21,11 +21,13 @@ typedef OnPointerDownEvent = void Function(PointerDownEvent);
 class BulletinBoardScenePointerEvents {
   const BulletinBoardScenePointerEvents({
     required this.onPointerHoverEvent,
-    required this.onPointerUpEvent
+    required this.onPointerUpEvent,
+    required this.onPointerDownEvent
   });
 
   final OnPointerHoverEvent onPointerHoverEvent;
   final OnPointerUpEvent onPointerUpEvent;
+  final OnPointerDownEvent onPointerDownEvent;
 }
 
 class BulletinBoardScenePresentation extends StatelessWidget {
@@ -52,6 +54,7 @@ class BulletinBoardScenePresentation extends StatelessWidget {
     return Listener(
       onPointerHover: pointerEvents.onPointerHoverEvent,
       onPointerUp: pointerEvents.onPointerUpEvent,
+      onPointerDown: pointerEvents.onPointerDownEvent,
       child: Container(
         color: const Color.fromARGB(255, 156, 111, 62),
         child: Stack(
@@ -93,7 +96,8 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     _bulletinBoardFSM = BulletinBoardNonDeterministicFSM(_bulletinBoardFSMResolver.getState(BulletinBoardFSMStateName.idle));
     _pointerEvents = BulletinBoardScenePointerEvents(
       onPointerHoverEvent: _onMouseHover,
-      onPointerUpEvent: _onMouseUp);
+      onPointerUpEvent: _onMouseUp,
+      onPointerDownEvent: _onPointerDown);
   }
 
   @override
@@ -136,6 +140,18 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
           _bulletinCards.last = AstaliCard(cardPosition: _currentMousePos);
         }
       );
+    }
+  }
+
+  void _onPointerDown(PointerDownEvent pointerDownEvent) {
+    if(pointerDownEvent.buttons == kSecondaryMouseButton &&
+      isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
+      // The user requested to cancel the card creation.
+      _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.idle);
+
+      setState(() {
+        _bulletinCards.removeLast();
+      });
     }
   }
 
