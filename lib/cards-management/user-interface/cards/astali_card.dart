@@ -5,21 +5,19 @@ import 'package:flutter/material.dart';
 
 class AstaliCardPresentation extends StatelessWidget {
   const AstaliCardPresentation({
-    required this.cardX,
-    required this.cardY,
+    required this.cardPosition,
     super.key
   });
 
-  final double cardX;
-  final double cardY;
+  final Point<double> cardPosition;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: <Widget>[
         Positioned(
-          top: cardY,
-          left: cardX,
+          top: cardPosition.y,
+          left: cardPosition.x,
           child: SizedBox(
             width: 200,
             height: 200,
@@ -42,13 +40,11 @@ class AstaliCardPresentation extends StatelessWidget {
 
 class AstaliCard extends StatefulWidget {
   const AstaliCard({
-    required this.cardX,
-    required this.cardY,
+    required this.cardPosition,
     super.key
   });
 
-  final double cardX;
-  final double cardY;
+  final Point<double> cardPosition;
 
   @override
   State<AstaliCard> createState() => _AstaliCardState();
@@ -57,6 +53,6 @@ class AstaliCard extends StatefulWidget {
 class _AstaliCardState extends State<AstaliCard> {
   @override
   Widget build(BuildContext context) {
-    return AstaliCardPresentation(cardX: widget.cardX, cardY: widget.cardY);
+    return AstaliCardPresentation(cardPosition: widget.cardPosition);
   }
 }

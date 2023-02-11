@@ -1,5 +1,7 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
+import 'dart:math';
+
 import 'package:astali/cards-management/user-interface/cards/astali_card.dart';
 import 'package:astali/fsm/finite_state_machine.dart';
 
@@ -59,8 +61,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
 
   final List<AstaliCard> _bulletinCards = List<AstaliCard>.empty(growable: true);
-  double _currentMouseX = 0.0;
-  double _currentMouseY = 0.0;
+  Point<double> _currentMousePos = Point<double>(0.0, 0.0);
 
   @override
   void initState() {
@@ -87,20 +88,28 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   }
 
   void _onCardAddEvent() {
+    if(isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
+      // The previous card was spawning and the user didn't confirm it. We can
+      // erase that card.
+      // The card is always the last inside this list.
+      _bulletinCards.removeLast();
+    }
+
     _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.creatingCard);
 
     setState(() {
-      _bulletinCards.add(AstaliCard(cardX: _currentMouseX, cardY: _currentMouseY));
+      _bulletinCards.add(AstaliCard(cardPosition: _currentMousePos));
     });
   }
 
   void _onMouseHover(PointerHoverEvent pointerHoverEvent) {
-    _currentMouseX = pointerHoverEvent.localPosition.dx;
-    _currentMouseY = pointerHoverEvent.localPosition.dy;
+    // We retrieve the mouse position independently from the current FSM state.
+    final Offset localPosition = pointerHoverEvent.localPosition;
+    _currentMousePos = Point<double>(localPosition.dx, localPosition.dy);
 
     if(isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
       setState(() {
-          _bulletinCards.last = AstaliCard(cardX: _currentMouseX, cardY: _currentMouseY);
+          _bulletinCards.last = AstaliCard(cardPosition: _currentMousePos);
         }
       );
     }
