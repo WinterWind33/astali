@@ -1,25 +1,42 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
-import 'dart:math';
-
+// Astali cards
 import 'package:astali/cards-management/user-interface/cards/astali_card.dart';
-import 'package:astali/fsm/finite_state_machine.dart';
 
+// FSM
+import 'package:astali/fsm/finite_state_machine.dart';
 import 'package:astali/fsm/fsm_transition.dart';
-import 'package:flutter/gestures.dart';
 import 'finite-state-machines/bulletin_board_fsm.dart';
 
+// Core and engine
+import 'dart:math';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 typedef OnCardAddEvent = VoidCallback;
+typedef OnPointerHoverEvent = void Function(PointerHoverEvent);
+typedef OnPointerUpEvent = void Function(PointerUpEvent);
+typedef OnPointerDownEvent = void Function(PointerDownEvent);
+
+class BulletinBoardScenePointerEvents {
+  const BulletinBoardScenePointerEvents({
+    required this.onPointerHoverEvent,
+    required this.onPointerUpEvent
+  });
+
+  final OnPointerHoverEvent onPointerHoverEvent;
+  final OnPointerUpEvent onPointerUpEvent;
+}
 
 class BulletinBoardScenePresentation extends StatelessWidget {
   const BulletinBoardScenePresentation({
+    required this.pointerEvents,
     required this.onCardAddEvent,
     required this.cardsToRender,
     super.key
   });
 
+  final BulletinBoardScenePointerEvents pointerEvents;
   final OnCardAddEvent onCardAddEvent;
   final List<AstaliCard> cardsToRender;
 
@@ -32,11 +49,15 @@ class BulletinBoardScenePresentation extends StatelessWidget {
   }
 
   Widget _createBody() {
-    return Container(
+    return Listener(
+      onPointerHover: pointerEvents.onPointerHoverEvent,
+      onPointerUp: pointerEvents.onPointerUpEvent,
+      child: Container(
         color: const Color.fromARGB(255, 156, 111, 62),
         child: Stack(
           children: cardsToRender,
         )
+      )
     );
   }
 
@@ -61,13 +82,18 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
 
   final List<AstaliCard> _bulletinCards = List<AstaliCard>.empty(growable: true);
-  Point<double> _currentMousePos = Point<double>(0.0, 0.0);
+
+  BulletinBoardScenePointerEvents? _pointerEvents;
+  Point<double> _currentMousePos = const Point<double>(0.0, 0.0);
 
   @override
   void initState() {
     super.initState();
 
     _bulletinBoardFSM = BulletinBoardNonDeterministicFSM(_bulletinBoardFSMResolver.getState(BulletinBoardFSMStateName.idle));
+    _pointerEvents = BulletinBoardScenePointerEvents(
+      onPointerHoverEvent: _onMouseHover,
+      onPointerUpEvent: _onMouseUp);
   }
 
   @override
@@ -79,16 +105,14 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
 
   @override
   Widget build(Object context) {
-    return Listener(
-      onPointerHover: _onMouseHover,
-      child: BulletinBoardScenePresentation(
+    return BulletinBoardScenePresentation(
+        pointerEvents: _pointerEvents!,
         onCardAddEvent: _onCardAddEvent,
-        cardsToRender: _bulletinCards),
-    );
+        cardsToRender: _bulletinCards);
   }
 
   void _onCardAddEvent() {
-    if(isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
+    if(!isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.idle)) {
       // The previous card was spawning and the user didn't confirm it. We can
       // erase that card.
       // The card is always the last inside this list.
@@ -115,4 +139,13 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     }
   }
 
+  void _onMouseUp(PointerUpEvent pointerUpEvent) {
+    if(isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
+      _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.idle);
+
+      setState(() {
+        _bulletinCards.last = AstaliCard(cardPosition: _currentMousePos);
+      });
+    }
+  }
 }
