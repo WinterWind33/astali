@@ -155,20 +155,6 @@ packages:
       url: "https://pub.dartlang.org"
     source: hosted
     version: "2.2.3"
-  effective_dart:
-    dependency: transitive
-    description:
-      name: effective_dart
-      url: "https://pub.dartlang.org"
-    source: hosted
-    version: "1.3.2"
-  expandable:
-    dependency: transitive
-    description:
-      name: expandable
-      url: "https://pub.dartlang.org"
-    source: hosted
-    version: "5.0.1"
   fake_async:
     dependency: transitive
     description:
@@ -228,13 +214,6 @@ packages:
       url: "https://pub.dartlang.org"
     source: hosted
     version: "2.1.0"
-  http:
-    dependency: transitive
-    description:
-      name: http
-      url: "https://pub.dartlang.org"
-    source: hosted
-    version: "0.13.5"
   http_multi_server:
     dependency: transitive
     description:
@@ -284,13 +263,6 @@ packages:
       url: "https://pub.dartlang.org"
     source: hosted
     version: "1.0.2"
-  markdown_editable_textinput:
-    dependency: "direct main"
-    description:
-      name: markdown_editable_textinput
-      url: "https://pub.dartlang.org"
-    source: hosted
-    version: "2.2.0"
   matcher:
     dependency: transitive
     description:
@@ -443,13 +415,6 @@ packages:
       url: "https://pub.dartlang.org"
     source: hosted
     version: "1.0.0"
-  translator:
-    dependency: transitive
-    description:
-      name: translator
-      url: "https://pub.dartlang.org"
-    source: hosted
-    version: "0.1.7"
   typed_data:
     dependency: transitive
     description:
@@ -487,4 +452,3 @@ packages:
     version: "3.1.1"
 sdks:
   dart: ">=2.18.0 <3.0.0"
-  flutter: ">=2.0.0"
