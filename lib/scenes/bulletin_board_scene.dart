@@ -1,8 +1,10 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 import 'package:astali/cards-management/user-interface/cards/astali_card.dart';
+import 'package:astali/fsm/finite_state_machine.dart';
 
 import 'package:astali/fsm/fsm_transition.dart';
+import 'package:flutter/gestures.dart';
 import 'finite-state-machines/bulletin_board_fsm.dart';
 
 import 'package:flutter/material.dart';
@@ -56,7 +58,9 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   final BulletinBoardFSMStateResolver _bulletinBoardFSMResolver = BulletinBoardFSMStateResolver();
   BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
 
-  List<AstaliCard> _bulletinCards = List<AstaliCard>.empty(growable: true);
+  final List<AstaliCard> _bulletinCards = List<AstaliCard>.empty(growable: true);
+  double _currentMouseX = 0.0;
+  double _currentMouseY = 0.0;
 
   @override
   void initState() {
@@ -75,7 +79,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   @override
   Widget build(Object context) {
     return Listener(
-      onPointerMove: _onMouseHover,
+      onPointerHover: _onMouseHover,
       child: BulletinBoardScenePresentation(
         onCardAddEvent: _onCardAddEvent,
         cardsToRender: _bulletinCards),
@@ -86,10 +90,20 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.creatingCard);
 
     setState(() {
-      _bulletinCards.add(const AstaliCard());
+      _bulletinCards.add(AstaliCard(cardX: _currentMouseX, cardY: _currentMouseY));
     });
   }
 
-  void _onMouseHover(PointerMoveEvent pointerHoverEvent) {}
+  void _onMouseHover(PointerHoverEvent pointerHoverEvent) {
+    _currentMouseX = pointerHoverEvent.localPosition.dx;
+    _currentMouseY = pointerHoverEvent.localPosition.dy;
+
+    if(isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
+      setState(() {
+          _bulletinCards.last = AstaliCard(cardX: _currentMouseX, cardY: _currentMouseY);
+        }
+      );
+    }
+  }
 
 }

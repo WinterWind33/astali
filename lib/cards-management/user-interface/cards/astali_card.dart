@@ -1,25 +1,54 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 class AstaliCardPresentation extends StatelessWidget {
-  const AstaliCardPresentation({super.key});
+  const AstaliCardPresentation({
+    required this.cardX,
+    required this.cardY,
+    super.key
+  });
+
+  final double cardX;
+  final double cardY;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Column(
-        children: [
-          const Text("Card title"),
-          const Text("Card description")
-        ]
-      ),
+    return Stack(
+      children: <Widget>[
+        Positioned(
+          top: cardY,
+          left: cardX,
+          child: SizedBox(
+            width: 200,
+            height: 200,
+            child: Card(
+              shadowColor: Colors.black,
+              color: Colors.blue,
+              child: Column(
+                children: const [
+                  Text("Card title"),
+                  Text("Card description")
+                ]
+              ),
+            )
+          )
+        )
+      ]
     );
   }
-
 }
 
 class AstaliCard extends StatefulWidget {
-  const AstaliCard({super.key});
+  const AstaliCard({
+    required this.cardX,
+    required this.cardY,
+    super.key
+  });
+
+  final double cardX;
+  final double cardY;
 
   @override
   State<AstaliCard> createState() => _AstaliCardState();
@@ -28,6 +57,6 @@ class AstaliCard extends StatefulWidget {
 class _AstaliCardState extends State<AstaliCard> {
   @override
   Widget build(BuildContext context) {
-    return const AstaliCardPresentation();
+    return AstaliCardPresentation(cardX: widget.cardX, cardY: widget.cardY);
   }
 }
