@@ -28,3 +28,21 @@ class FSMSimpleTransition<SymbolType> implements FSMTransition<SymbolType> {
 
   final FSMStateResolver<SymbolType> _stateResolver;
 }
+
+class FSMTransitionToInitialState<SymbolType> implements FSMTransition<SymbolType> {
+  const FSMTransitionToInitialState(final FSMStateResolver<SymbolType> stateResolver) :
+    _stateResolver = stateResolver;
+
+  @override
+  FSMState<SymbolType> execute(FSMState<SymbolType> startingState, final SymbolType finalStateName) {
+    FSMState<SymbolType> finalState = _stateResolver.getState(finalStateName);
+
+    // Here we don't call onStateLeave() because the previous state
+    // is an invalid state (like a deferred state).
+    finalState.onStateEnter();
+
+    return finalState;
+  }
+
+  final FSMStateResolver<SymbolType> _stateResolver;
+}

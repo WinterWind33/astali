@@ -15,3 +15,19 @@ abstract class FSMState<SymbolType> {
   /// to another.
   void onStateLeave();
 }
+
+/// Represent an invalid state that is used to signal
+/// the parent FSM state that it will enter the initial state
+/// after the FSM initialization.
+class DeferredInitializationFSMState<SymbolType> implements FSMState<SymbolType> {
+  @override
+  SymbolType getStateName() {
+    throw UnimplementedError();
+  }
+
+  @override
+  void onStateEnter() {}
+
+  @override
+  void onStateLeave() {}
+}
