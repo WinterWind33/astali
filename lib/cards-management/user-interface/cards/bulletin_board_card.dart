@@ -4,19 +4,15 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 
-typedef OnMarkdownTextChanged = void Function(String);
+typedef OnDescriptionTextChanged = void Function(String);
 
-class AstaliCardPresentation extends StatelessWidget {
-  const AstaliCardPresentation({
+class BulletinBoardCardPresentation extends StatelessWidget {
+  const BulletinBoardCardPresentation({
     required this.cardPosition,
-    required this.onMarkdownTextChanged,
-    required this.markdownText,
     super.key
   });
 
   final Point<double> cardPosition;
-  final OnMarkdownTextChanged onMarkdownTextChanged;
-  final String markdownText;
 
   @override
   Widget build(BuildContext context) {
@@ -74,8 +70,8 @@ class AstaliCardPresentation extends StatelessWidget {
   }
 }
 
-class AstaliCard extends StatefulWidget {
-  const AstaliCard({
+class BulletinBoardCard extends StatefulWidget {
+  const BulletinBoardCard({
     required this.cardPosition,
     super.key
   });
@@ -83,23 +79,14 @@ class AstaliCard extends StatefulWidget {
   final Point<double> cardPosition;
 
   @override
-  State<AstaliCard> createState() => _AstaliCardState();
+  State<BulletinBoardCard> createState() => _BulletinBoardCardState();
 }
 
-class _AstaliCardState extends State<AstaliCard> {
-  String _cardDescription = "";
-
+class _BulletinBoardCardState extends State<BulletinBoardCard> {
   @override
   Widget build(BuildContext context) {
-    return AstaliCardPresentation(
-      cardPosition: widget.cardPosition,
-      onMarkdownTextChanged: _onDescriptionChanged,
-      markdownText: _cardDescription);
-  }
-
-  void _onDescriptionChanged(String value) {
-    setState(() {
-      _cardDescription = value;
-    });
+    return BulletinBoardCardPresentation(
+      cardPosition: widget.cardPosition
+    );
   }
 }

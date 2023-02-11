@@ -1,7 +1,7 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 // Astali cards
-import 'package:astali/cards-management/user-interface/cards/astali_card.dart';
+import 'package:astali/cards-management/user-interface/cards/bulletin_board_card.dart';
 
 // FSM
 import 'package:astali/fsm/finite_state_machine.dart';
@@ -40,7 +40,7 @@ class BulletinBoardScenePresentation extends StatelessWidget {
 
   final BulletinBoardScenePointerEvents pointerEvents;
   final OnCardAddEvent onCardAddEvent;
-  final List<AstaliCard> cardsToRender;
+  final List<BulletinBoardCard> cardsToRender;
 
   FloatingActionButton _createAddCardButton() {
     return FloatingActionButton(
@@ -84,7 +84,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   final BulletinBoardFSMStateResolver _bulletinBoardFSMResolver = BulletinBoardFSMStateResolver();
   BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
 
-  final List<AstaliCard> _bulletinCards = List<AstaliCard>.empty(growable: true);
+  final List<BulletinBoardCard> _bulletinCards = List<BulletinBoardCard>.empty(growable: true);
 
   BulletinBoardScenePointerEvents? _pointerEvents;
   Point<double> _currentMousePos = const Point<double>(0.0, 0.0);
@@ -126,7 +126,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.creatingCard);
 
     setState(() {
-      _bulletinCards.add(AstaliCard(cardPosition: _currentMousePos));
+      _bulletinCards.add(BulletinBoardCard(cardPosition: _currentMousePos));
     });
   }
 
@@ -137,7 +137,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
 
     if(isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.creatingCard)) {
       setState(() {
-          _bulletinCards.last = AstaliCard(cardPosition: _currentMousePos);
+          _bulletinCards.last = BulletinBoardCard(cardPosition: _currentMousePos);
         }
       );
     }
@@ -160,7 +160,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
       _bulletinBoardFSM!.transit(FSMSimpleTransition(_bulletinBoardFSMResolver), BulletinBoardFSMStateName.idle);
 
       setState(() {
-        _bulletinCards.last = AstaliCard(cardPosition: _currentMousePos);
+        _bulletinCards.last = BulletinBoardCard(cardPosition: _currentMousePos);
       });
     }
   }
