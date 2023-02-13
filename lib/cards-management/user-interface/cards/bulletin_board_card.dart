@@ -1,5 +1,7 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
+import 'package:astali/input-management/pointer_events.dart';
+
 // Core and engine
 import 'package:flutter/material.dart';
 import 'dart:math';
@@ -12,7 +14,7 @@ class BulletinBoardCardPresentation extends StatelessWidget {
     super.key
   });
 
-  final Point<double> cardPosition;
+  final MousePoint cardPosition;
 
   @override
   Widget build(BuildContext context) {
