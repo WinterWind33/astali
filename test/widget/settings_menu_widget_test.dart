@@ -1,16 +1,15 @@
-// Copyright (C) 2022 Andrea Ballestrazzi
+// Copyright (C) 2023 Andrea Ballestrazzi
+
+// Production classes
+import 'package:astali/astali_app.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 
-// Production classes
-import 'package:astali/astali_app.dart';
-import 'package:astali/astali_main_injector.dart';
-
 void main() {
   testWidgets("The default settings menu should have an 'About' section",
       (tester) async {
-    await tester.pumpWidget(const AstaliApp(AstaliMainInjector()));
+    await tester.pumpWidget(const AstaliApp());
 
     // Now we need to generate the settings menu. Here we tap the settings button.
     await tester.tap(find.byIcon(Icons.settings));
@@ -25,7 +24,7 @@ void main() {
   testWidgets(
       "When a click is done on the 'About' section, it should be displayed the about dialog",
       (tester) async {
-    await tester.pumpWidget(const AstaliApp(AstaliMainInjector()));
+    await tester.pumpWidget(const AstaliApp());
 
     await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
