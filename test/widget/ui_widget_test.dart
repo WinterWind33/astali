@@ -1,4 +1,4 @@
-// Copyright (C) 2022 Andrea Ballestrazzi
+// Copyright (C) 2023 Andrea Ballestrazzi
 
 // Production classes
 import 'package:astali/astali_app.dart';
