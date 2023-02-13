@@ -17,18 +17,27 @@ enum BulletinBoardFSMStateName {
   creatingCard
 }
 
+typedef BulletinBoardNonDeterministicFSMBaseType = NonDeterministicFSM<BulletinBoardFSMStateName>;
+typedef BulletinBoardFSMStateResolverBaseType = FSMStateResolver<BulletinBoardFSMStateName>;
+
 abstract class BulletinBoardFSMState extends FSMState<BulletinBoardFSMStateName> {
   void setBulletinCardsList(List<BulletinBoardCard> cards);
+  void setFiniteStateMachine(BulletinBoardNonDeterministicFSMBaseType fsm);
+  void setStateResolver(BulletinBoardFSMStateResolverBaseType resolver);
   void onPointerHover(PointerHoverEvent pointerHoverEvent);
   void onPointerUp(PointerUpEvent pointerUpEvent);
   void onPointerDown(PointerDownEvent pointerDownEvent);
   void onAddCardEvent();
 }
 
+/// Utility base class for the bulletin state classes. This represents an invalid
+/// state.
 class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
   BulletinBoardEmptyFSMState(BulletinBoardFSMStateName stateName) :
+    _stateName = stateName,
     _cardsList = List.empty(),
-    _stateName = stateName;
+    _currentMousePos = const MousePoint(0.0, 0.0);
+
 
   @override
   BulletinBoardFSMStateName getStateName() {
@@ -39,13 +48,19 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
   void onAddCardEvent() {}
 
   @override
-  void onPointerDown(PointerDownEvent pointerDownEvent) {}
+  void onPointerDown(PointerDownEvent pointerDownEvent) {
+    _updateMousePosition(pointerDownEvent.localPosition);
+  }
 
   @override
-  void onPointerHover(PointerHoverEvent pointerHoverEvent) {}
+  void onPointerHover(PointerHoverEvent pointerHoverEvent) {
+    _updateMousePosition(pointerHoverEvent.localPosition);
+  }
 
   @override
-  void onPointerUp(PointerUpEvent pointerUpEvent) {}
+  void onPointerUp(PointerUpEvent pointerUpEvent) {
+    _updateMousePosition(pointerUpEvent.localPosition);
+  }
 
   @override
   void onStateEnter() {}
@@ -58,18 +73,53 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
     _cardsList = cards;
   }
 
+  @override
+  void setFiniteStateMachine(BulletinBoardNonDeterministicFSMBaseType fsm) {
+    _ownerFSM = fsm;
+  }
+
+  @override
+  void setStateResolver(BulletinBoardFSMStateResolverBaseType stateResolver) {
+    _stateResolver = stateResolver;
+  }
+
+  void _updateMousePosition(final Offset localPosition) {
+    _currentMousePos = MousePoint(localPosition.dx, localPosition.dy);
+  }
+
   final BulletinBoardFSMStateName _stateName;
   List<BulletinBoardCard> _cardsList;
+  MousePoint _currentMousePos;
+  BulletinBoardNonDeterministicFSMBaseType? _ownerFSM;
+  BulletinBoardFSMStateResolverBaseType? _stateResolver;
 }
 
 class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
   BulletinBoardIdleFSMState() :
     super(BulletinBoardFSMStateName.idle);
+
+  @override
+  void onAddCardEvent() {
+    assert(_ownerFSM != null);
+    assert(_stateResolver != null);
+
+    // We are in idle state, so the user wants to create a card.
+    // We can migrate to that state.
+    _ownerFSM!.transit(FSMSimpleTransition(_stateResolver!), BulletinBoardFSMStateName.creatingCard);
+  }
 }
 
 class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
   BulletinBoardCreatingCardFSMState() :
     super(BulletinBoardFSMStateName.creatingCard);
+
+    @override
+    void onStateEnter() {
+      // If this method is called then we are coming from the idle state (becase it is the
+      // only other state for this FSM). In this case we need to spawn a new card because the
+      // user clicked on the "add card" button.
+      _cardsList.add(BulletinBoardCard(cardPosition: _currentMousePos));
+    }
 }
 
 class BulletinBoardNonDeterministicFSM extends NonDeterministicFSM<BulletinBoardFSMStateName> implements FSMStateResolver<BulletinBoardFSMStateName> {
@@ -88,6 +138,8 @@ class BulletinBoardNonDeterministicFSM extends NonDeterministicFSM<BulletinBoard
     transit(FSMTransitionToInitialState<BulletinBoardFSMStateName>(this), BulletinBoardFSMStateName.idle);
 
     _fsmStates.forEach((key, state) {
+      state.setFiniteStateMachine(this);
+      state.setStateResolver(this);
       state.setBulletinCardsList(boardCardsList);
     });
   }
@@ -120,4 +172,8 @@ class BulletinBoardNonDeterministicFSM extends NonDeterministicFSM<BulletinBoard
   }
 
   final Map<BulletinBoardFSMStateName, BulletinBoardFSMState> _fsmStates;
+}
+
+void processOnAddCardEvent(BulletinBoardNonDeterministicFSM fsm) {
+  fsm.getCurrentState().onAddCardEvent();
 }

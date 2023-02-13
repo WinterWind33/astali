@@ -120,17 +120,8 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   }
 
   void _onCardAddEvent() {
-    if(!_bulletinBoardFSM.isInIdleMode()) {
-      // The previous card was spawning and the user didn't confirm it. We can
-      // erase that card.
-      // The card is always the last inside this list.
-      _removeCreatingCard();
-    }
-
-    _bulletinBoardFSM.transitToCreatingCardMode();
-
     setState(() {
-      _bulletinCards.add(BulletinBoardCard(cardPosition: _currentMousePos));
+      processOnAddCardEvent(_bulletinBoardFSM);
     });
   }
 
