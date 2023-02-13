@@ -80,9 +80,9 @@ class BulletinBoardScene extends StatefulWidget {
 class _BulletinBoardState extends State<BulletinBoardScene> {
   final BulletinBoardNonDeterministicFSM _bulletinBoardFSM = BulletinBoardNonDeterministicFSM();
   final List<BulletinBoardCard> _bulletinCards = List<BulletinBoardCard>.empty(growable: true);
+  BulletinBoardFSMEventDispatcher? _fsmEventHandler;
 
   BulletinBoardScenePointerEvents? _pointerEvents;
-  MousePoint _currentMousePos = const MousePoint(0.0, 0.0);
 
   @override
   void initState() {
@@ -94,12 +94,13 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
       onPointerDownEvent: _onPointerDown);
 
     _bulletinBoardFSM.initialize(_bulletinCards);
+    _fsmEventHandler = BulletinBoardFSMEventDispatcher(_bulletinBoardFSM);
   }
 
   @override
   void dispose() {
     // We need the board to go to the idle state before being disposed.
-    _bulletinBoardFSM.transitToIdleMode();
+    _bulletinBoardFSM.teardown();
     super.dispose();
   }
 
@@ -111,51 +112,27 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
         cardsToRender: _bulletinCards);
   }
 
-  void _removeCreatingCard() {
-    _bulletinCards.removeLast();
-  }
-
-  void _updateCreatingCard(MousePoint newPoint) {
-    _bulletinCards.last = BulletinBoardCard(cardPosition: newPoint);
-  }
-
   void _onCardAddEvent() {
     setState(() {
-      processOnAddCardEvent(_bulletinBoardFSM);
+      _fsmEventHandler!.processOnAddCardEvent();
     });
   }
 
   void _onMouseHover(PointerHoverEvent pointerHoverEvent) {
-    // We retrieve the mouse position independently from the current FSM state.
-    final Offset localPosition = pointerHoverEvent.localPosition;
-    _currentMousePos = MousePoint(localPosition.dx, localPosition.dy);
-
-    if(_bulletinBoardFSM.isInCreatingCardMode()) {
-      setState(() {
-          _updateCreatingCard(_currentMousePos);
-        }
-      );
-    }
+    setState(() {
+      _fsmEventHandler!.processOnPointerHoverEvent(pointerHoverEvent);
+    });
   }
 
   void _onPointerDown(PointerDownEvent pointerDownEvent) {
-    if(isRightMouseButton(pointerDownEvent.buttons) && _bulletinBoardFSM.isInCreatingCardMode()) {
-      // The user requested to cancel the card creation.
-      _bulletinBoardFSM.transitToIdleMode();
-
-      setState(() {
-        _removeCreatingCard();
-      });
-    }
+    setState(() {
+      _fsmEventHandler!.processOnPointerDownEvent(pointerDownEvent);
+    });
   }
 
   void _onMouseUp(PointerUpEvent pointerUpEvent) {
-    if(_bulletinBoardFSM.isInCreatingCardMode()) {
-      _bulletinBoardFSM.transitToIdleMode();
-
-      setState(() {
-        _updateCreatingCard(_currentMousePos);
-      });
-    }
+    setState(() {
+      _fsmEventHandler!.processOnPointerUpEvent(pointerUpEvent);
+    });
   }
 }
