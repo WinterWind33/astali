@@ -3,5 +3,14 @@
     "files.eol": "\n",
     "files.trimTrailingWhitespace": true,
     "files.trimFinalNewlines": false,
-    "files.insertFinalNewline": true
+    "files.insertFinalNewline": true,
+    "[dart]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false,
+        "editor.suggest.insertMode": "replace",
+        "editor.defaultFormatter": "Dart-Code.dart-code",
+        "editor.inlayHints.enabled": "offUnlessPressed",
+        "editor.formatOnSave": true
+    }
 }
