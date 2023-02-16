@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'dart:math';
 
 typedef OnDescriptionTextChanged = void Function(String);
+typedef OnCardFocusChanged = void Function(bool);
 
 class BulletinBoardCardPresentation extends StatelessWidget {
   static const double cardWidth = 200.0;
@@ -16,11 +17,15 @@ class BulletinBoardCardPresentation extends StatelessWidget {
 
   const BulletinBoardCardPresentation(
       {required this.cardPosition,
-      required this.onPointerDownEvent,
+      required this.onCardFocusChanged,
+      required this.onPointerUpEvent,
+      required this.bSelected,
       super.key});
 
   final MousePoint cardPosition;
-  final OnPointerDownEvent onPointerDownEvent;
+  final OnCardFocusChanged onCardFocusChanged;
+  final OnPointerUpEvent onPointerUpEvent;
+  final bool bSelected;
 
   TextField _createTitleTextField(BuildContext context, final double fontSize) {
     return const TextField(
@@ -65,9 +70,20 @@ class BulletinBoardCardPresentation extends StatelessWidget {
   }
 
   Card _createMainCardBody(BuildContext context, final Color cardColor) {
+    ShapeBorder? cardShapeBorder;
+
+    // If this card is selected or has focus, we tint the outline border
+    // of another color. We do this by setting the card shape border.
+    if (bSelected) {
+      cardShapeBorder = RoundedRectangleBorder(
+          side: BorderSide(color: Colors.blue[600]!, width: 2.0),
+          borderRadius: const BorderRadius.all(Radius.circular(12.0)));
+    }
+
     return Card(
         shadowColor: Colors.black,
         color: cardColor,
+        shape: cardShapeBorder,
         child: _createCardMainBodyLayout(context));
   }
 
@@ -79,17 +95,21 @@ class BulletinBoardCardPresentation extends StatelessWidget {
         child: _createMainCardBody(context, Colors.yellow[200]!));
   }
 
-  Listener _createPointerListenerArea(BuildContext context) {
+  Widget _createEventSensitiveArea(BuildContext context) {
     return Listener(
-        onPointerDown: onPointerDownEvent,
-        child: _createCardSizedBox(context, cardWidth, cardHeight));
+        onPointerUp: onPointerUpEvent,
+        child: Focus(
+            onFocusChange: (bHasFocus) {
+              onCardFocusChanged(bHasFocus);
+            },
+            child: _createCardSizedBox(context, cardWidth, cardHeight)));
   }
 
   Positioned _createPositionableArea(BuildContext context) {
     return Positioned(
         top: cardPosition.y,
         left: cardPosition.x,
-        child: _createPointerListenerArea(context));
+        child: _createEventSensitiveArea(context));
   }
 
   Widget _createCard(BuildContext context) {
@@ -103,23 +123,43 @@ class BulletinBoardCardPresentation extends StatelessWidget {
 }
 
 class BulletinBoardCard extends StatefulWidget {
-  const BulletinBoardCard({required this.cardPosition, super.key});
+  const BulletinBoardCard(
+      {required this.cardPosition, this.bSelected = false, super.key});
 
   final Point<double> cardPosition;
+  final bool bSelected;
 
   @override
   State<BulletinBoardCard> createState() => _BulletinBoardCardState();
 }
 
 class _BulletinBoardCardState extends State<BulletinBoardCard> {
-  void _onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
-    print("Pointer down");
+  bool _bCardSelected = false;
+
+  @override
+  void initState() {
+    _bCardSelected = widget.bSelected;
+    super.initState();
+  }
+
+  void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
+    setState(() {
+      _bCardSelected = true;
+    });
+  }
+
+  void _onCardFocusChanged(final bool bHasFocus) {
+    setState(() {
+      _bCardSelected = bHasFocus;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return BulletinBoardCardPresentation(
-        onPointerDownEvent: _onPointerDownOnCard,
+        onCardFocusChanged: _onCardFocusChanged,
+        onPointerUpEvent: _onPointerUpOnCard,
+        bSelected: _bCardSelected,
         cardPosition: widget.cardPosition);
   }
 }
