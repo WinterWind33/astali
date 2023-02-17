@@ -4,9 +4,6 @@ import 'bulletin_board_card_id.dart';
 
 typedef BulletinBoardCardSelectionSet = Set<BulletinBoardCardID>;
 
-typedef OnBulletinBoardCardSelectionChangedEvent = void Function(
-    BulletinBoardCardID, bool);
-
 class BulletinBoardCardSelectionLock {
   const BulletinBoardCardSelectionLock(final bool bLocked)
       : _bIsSelectionLocked = bLocked;
@@ -33,6 +30,13 @@ abstract class BulletinBoardCardSafeSelectionController {
 
   void safeSetCardSelectionStateOrSinkLock(
       final BulletinBoardCardID cardID, final bool bSelected);
+}
+
+class BulletinBoardCardSelectionUtils {
+  static bool isCardSelected(final BulletinBoardCardID cardID,
+      BulletinBoardCardSafeSelectionController selectionController) {
+    return selectionController.getSelectedCardsIDs().contains(cardID);
+  }
 }
 
 class BulletinBoardCardSafeSelectionControllerImpl
