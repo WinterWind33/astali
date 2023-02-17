@@ -1,5 +1,6 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
 import 'package:astali/input-management/pointer_events.dart';
 
 // Core and engine
@@ -8,6 +9,8 @@ import 'dart:math';
 
 typedef OnDescriptionTextChanged = void Function(String);
 typedef OnCardFocusChanged = void Function(bool);
+
+typedef OnBulletinBoardCardSelected = void Function(BulletinBoardCardID, bool);
 
 class BulletinBoardCardPresentation extends StatelessWidget {
   static const double cardWidth = 200.0;
@@ -124,10 +127,16 @@ class BulletinBoardCardPresentation extends StatelessWidget {
 
 class BulletinBoardCard extends StatefulWidget {
   const BulletinBoardCard(
-      {required this.cardPosition, this.bSelected = false, super.key});
+      {required this.cardID,
+      required this.cardPosition,
+      required this.onBulletinBoardCardSelected,
+      this.bSelected = false,
+      super.key});
 
-  final Point<double> cardPosition;
   final bool bSelected;
+  final Point<double> cardPosition;
+  final BulletinBoardCardID cardID;
+  final OnBulletinBoardCardSelected onBulletinBoardCardSelected;
 
   @override
   State<BulletinBoardCard> createState() => _BulletinBoardCardState();
@@ -135,22 +144,30 @@ class BulletinBoardCard extends StatefulWidget {
 
 class _BulletinBoardCardState extends State<BulletinBoardCard> {
   bool _bCardSelected = false;
+  BulletinBoardCardID? _bulletinBoardCardId;
+  OnBulletinBoardCardSelected? _onBulletinBoardCardSelected;
 
   @override
   void initState() {
+    _bulletinBoardCardId = widget.cardID;
     _bCardSelected = widget.bSelected;
+    _onBulletinBoardCardSelected = widget.onBulletinBoardCardSelected;
     super.initState();
   }
 
   void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
+    // If the card was already selected we don't need to send
+    // an update to the parent.
+    if (_bCardSelected) return;
+
     setState(() {
-      _bCardSelected = true;
+      _onSelectionStateChanged(true);
     });
   }
 
   void _onCardFocusChanged(final bool bHasFocus) {
     setState(() {
-      _bCardSelected = bHasFocus;
+      _onSelectionStateChanged(bHasFocus);
     });
   }
 
@@ -161,5 +178,10 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
         onPointerUpEvent: _onPointerUpOnCard,
         bSelected: _bCardSelected,
         cardPosition: widget.cardPosition);
+  }
+
+  void _onSelectionStateChanged(final bool bSelected) {
+    _bCardSelected = bSelected;
+    _onBulletinBoardCardSelected!(_bulletinBoardCardId!, _bCardSelected);
   }
 }

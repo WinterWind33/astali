@@ -1,7 +1,8 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 // Astali cards
-import 'package:astali/cards-management/user-interface/cards/bulletin_board_card.dart';
+import 'package:astali/cards-management/bulletin-board-cards/presentation/bulletin_board_card.dart';
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
 import 'package:astali/input-management/pointer_events.dart';
 
 // FSM
@@ -16,11 +17,10 @@ typedef OnCardAddEvent = VoidCallback;
 /// Rerepresents a set of pointer callbacks used within
 /// the bulletin board scene.
 class BulletinBoardScenePointerEvents {
-  const BulletinBoardScenePointerEvents({
-    required this.onPointerHoverEvent,
-    required this.onPointerUpEvent,
-    required this.onPointerDownEvent
-  });
+  const BulletinBoardScenePointerEvents(
+      {required this.onPointerHoverEvent,
+      required this.onPointerUpEvent,
+      required this.onPointerDownEvent});
 
   final OnPointerHoverEvent onPointerHoverEvent;
   final OnPointerUpEvent onPointerUpEvent;
@@ -28,16 +28,15 @@ class BulletinBoardScenePointerEvents {
 }
 
 class BulletinBoardScenePresentation extends StatelessWidget {
-  const BulletinBoardScenePresentation({
-    required this.pointerEvents,
-    required this.onCardAddEvent,
-    required this.cardsToRender,
-    super.key
-  });
+  const BulletinBoardScenePresentation(
+      {required this.pointerEvents,
+      required this.onCardAddEvent,
+      required this.cardsToRender,
+      super.key});
 
   final BulletinBoardScenePointerEvents pointerEvents;
   final OnCardAddEvent onCardAddEvent;
-  final List<BulletinBoardCard> cardsToRender;
+  final BulletinBoardCards cardsToRender;
 
   FloatingActionButton _createAddCardButton() {
     return FloatingActionButton(
@@ -49,16 +48,14 @@ class BulletinBoardScenePresentation extends StatelessWidget {
 
   Widget _createBody() {
     return Listener(
-      onPointerHover: pointerEvents.onPointerHoverEvent,
-      onPointerUp: pointerEvents.onPointerUpEvent,
-      onPointerDown: pointerEvents.onPointerDownEvent,
-      child: Container(
-        color: const Color.fromARGB(255, 156, 111, 62),
-        child: Stack(
-          children: cardsToRender,
-        )
-      )
-    );
+        onPointerHover: pointerEvents.onPointerHoverEvent,
+        onPointerUp: pointerEvents.onPointerUpEvent,
+        onPointerDown: pointerEvents.onPointerDownEvent,
+        child: Container(
+            color: const Color.fromARGB(255, 156, 111, 62),
+            child: Stack(
+              children: cardsToRender.values.toList(),
+            )));
   }
 
   @override
@@ -78,29 +75,34 @@ class BulletinBoardScene extends StatefulWidget {
 }
 
 class _BulletinBoardState extends State<BulletinBoardScene> {
-  final BulletinBoardNonDeterministicFSM _bulletinBoardFSM = BulletinBoardNonDeterministicFSM();
-  final List<BulletinBoardCard> _bulletinCards = List<BulletinBoardCard>.empty(growable: true);
-  BulletinBoardFSMEventDispatcher? _fsmEventHandler;
+  final BulletinBoardCardIDGenerator _bulletinBoardCardsIDsGenerator =
+      BulletinBoardCardIDSimpleGenerator();
+  final BulletinBoardCards _bulletinCards = {};
 
+  BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
+  BulletinBoardFSMEventDispatcher? _fsmEventHandler;
   BulletinBoardScenePointerEvents? _pointerEvents;
 
   @override
   void initState() {
     super.initState();
 
-    _pointerEvents = BulletinBoardScenePointerEvents(
-      onPointerHoverEvent: _onMouseHover,
-      onPointerUpEvent: _onMouseUp,
-      onPointerDownEvent: _onPointerDown);
+    _bulletinBoardFSM =
+        BulletinBoardNonDeterministicFSM(_bulletinBoardCardsIDsGenerator);
 
-    _bulletinBoardFSM.initialize(_bulletinCards);
-    _fsmEventHandler = BulletinBoardFSMEventDispatcher(_bulletinBoardFSM);
+    _pointerEvents = BulletinBoardScenePointerEvents(
+        onPointerHoverEvent: _onMouseHover,
+        onPointerUpEvent: _onMouseUp,
+        onPointerDownEvent: _onPointerDown);
+
+    _bulletinBoardFSM!.initialize(_bulletinCards);
+    _fsmEventHandler = BulletinBoardFSMEventDispatcher(_bulletinBoardFSM!);
   }
 
   @override
   void dispose() {
     // We need the board to go to the idle state before being disposed.
-    _bulletinBoardFSM.teardown();
+    _bulletinBoardFSM!.teardown();
     super.dispose();
   }
 
@@ -119,6 +121,11 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   }
 
   void _onMouseHover(PointerHoverEvent pointerHoverEvent) {
+    if (_bulletinBoardFSM!.getCurrentStateName() ==
+        BulletinBoardFSMStateName.idle) {
+      return;
+    }
+
     setState(() {
       _fsmEventHandler!.processOnPointerHoverEvent(pointerHoverEvent);
     });
