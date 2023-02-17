@@ -2,7 +2,7 @@
 
 // Production classes
 import 'package:astali/astali_app.dart';
-import 'package:astali/cards-management/user-interface/cards/bulletin_board_card.dart';
+import 'package:astali/cards-management/bulletin-board-cards/presentation/bulletin_board_card.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
