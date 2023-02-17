@@ -142,7 +142,6 @@ class BulletinBoardCard extends StatefulWidget {
 }
 
 class _BulletinBoardCardState extends State<BulletinBoardCard> {
-  bool _bCardSelected = false;
   BulletinBoardCardID? _bulletinBoardCardId;
   BulletinBoardCardSafeSelectionController? _safeSelectionController;
 
@@ -152,8 +151,6 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
 
     _bulletinBoardCardId = widget.cardID;
     _safeSelectionController = widget.safeSelectionController;
-    _bCardSelected = BulletinBoardCardSelectionUtils.isCardSelected(
-        _bulletinBoardCardId!, _safeSelectionController!);
   }
 
   void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
@@ -173,12 +170,12 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     return BulletinBoardCardPresentation(
         onCardFocusChanged: _onCardFocusChanged,
         onPointerUpEvent: _onPointerUpOnCard,
-        bSelected: _bCardSelected,
+        bSelected: BulletinBoardCardSelectionUtils.isCardSelected(
+            _bulletinBoardCardId!, _safeSelectionController!),
         cardPosition: widget.cardPosition);
   }
 
   void _onSelectionStateChanged(final bool bSelected) {
-    _bCardSelected = bSelected;
     _safeSelectionController!
         .safeSetCardSelectionStateAndLock(_bulletinBoardCardId!, bSelected);
   }

@@ -157,6 +157,11 @@ class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
     // the card has set the lock on the selection state and we won't de-select it.
     for (var cardID in selectionSet) {
       _selectionController!.safeSetCardSelectionStateOrSinkLock(cardID, false);
+      final MousePoint oldMousePoint = _cardsList[cardID]!.cardPosition;
+      _cardsList[cardID] = BulletinBoardCard(
+          cardID: cardID,
+          cardPosition: oldMousePoint,
+          safeSelectionController: _selectionController!);
     }
   }
 }
