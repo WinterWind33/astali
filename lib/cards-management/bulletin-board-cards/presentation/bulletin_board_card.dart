@@ -8,10 +8,7 @@ import 'package:astali/input-management/pointer_events.dart';
 import 'package:flutter/material.dart';
 import 'dart:math';
 
-typedef OnDescriptionTextChanged = void Function(String);
 typedef OnCardFocusChanged = void Function(bool);
-
-typedef OnBulletinBoardCardSelected = void Function(BulletinBoardCardID, bool);
 
 class BulletinBoardCardPresentation extends StatelessWidget {
   static const double cardWidth = 200.0;
