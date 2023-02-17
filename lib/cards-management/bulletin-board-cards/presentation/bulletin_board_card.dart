@@ -1,6 +1,7 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
 import 'package:astali/input-management/pointer_events.dart';
 
 // Core and engine
@@ -129,14 +130,12 @@ class BulletinBoardCard extends StatefulWidget {
   const BulletinBoardCard(
       {required this.cardID,
       required this.cardPosition,
-      required this.onBulletinBoardCardSelected,
-      this.bSelected = false,
+      required this.safeSelectionController,
       super.key});
 
-  final bool bSelected;
   final Point<double> cardPosition;
   final BulletinBoardCardID cardID;
-  final OnBulletinBoardCardSelected onBulletinBoardCardSelected;
+  final BulletinBoardCardSafeSelectionController safeSelectionController;
 
   @override
   State<BulletinBoardCard> createState() => _BulletinBoardCardState();
@@ -145,21 +144,19 @@ class BulletinBoardCard extends StatefulWidget {
 class _BulletinBoardCardState extends State<BulletinBoardCard> {
   bool _bCardSelected = false;
   BulletinBoardCardID? _bulletinBoardCardId;
-  OnBulletinBoardCardSelected? _onBulletinBoardCardSelected;
+  BulletinBoardCardSafeSelectionController? _safeSelectionController;
 
   @override
   void initState() {
-    _bulletinBoardCardId = widget.cardID;
-    _bCardSelected = widget.bSelected;
-    _onBulletinBoardCardSelected = widget.onBulletinBoardCardSelected;
     super.initState();
+
+    _bulletinBoardCardId = widget.cardID;
+    _safeSelectionController = widget.safeSelectionController;
+    _bCardSelected = BulletinBoardCardSelectionUtils.isCardSelected(
+        _bulletinBoardCardId!, _safeSelectionController!);
   }
 
   void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
-    // If the card was already selected we don't need to send
-    // an update to the parent.
-    if (_bCardSelected) return;
-
     setState(() {
       _onSelectionStateChanged(true);
     });
@@ -182,6 +179,7 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
 
   void _onSelectionStateChanged(final bool bSelected) {
     _bCardSelected = bSelected;
-    _onBulletinBoardCardSelected!(_bulletinBoardCardId!, _bCardSelected);
+    _safeSelectionController!
+        .safeSetCardSelectionStateAndLock(_bulletinBoardCardId!, bSelected);
   }
 }

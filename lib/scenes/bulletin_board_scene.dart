@@ -1,6 +1,7 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 // Astali cards
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
 import 'package:astali/cards-management/bulletin-board-cards/presentation/bulletin_board_card.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
 import 'package:astali/input-management/pointer_events.dart';
@@ -78,6 +79,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   final BulletinBoardCardIDGenerator _bulletinBoardCardsIDsGenerator =
       BulletinBoardCardIDSimpleGenerator();
   final BulletinBoardCards _bulletinCards = {};
+  BulletinBoardCardSafeSelectionController? _safeSelectionController;
 
   BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
   BulletinBoardFSMEventDispatcher? _fsmEventHandler;
@@ -86,9 +88,10 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   @override
   void initState() {
     super.initState();
+    _safeSelectionController = BulletinBoardCardSafeSelectionControllerImpl();
 
-    _bulletinBoardFSM =
-        BulletinBoardNonDeterministicFSM(_bulletinBoardCardsIDsGenerator);
+    _bulletinBoardFSM = BulletinBoardNonDeterministicFSM(
+        _bulletinBoardCardsIDsGenerator, _safeSelectionController!);
 
     _pointerEvents = BulletinBoardScenePointerEvents(
         onPointerHoverEvent: _onMouseHover,
@@ -121,11 +124,6 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   }
 
   void _onMouseHover(PointerHoverEvent pointerHoverEvent) {
-    if (_bulletinBoardFSM!.getCurrentStateName() ==
-        BulletinBoardFSMStateName.idle) {
-      return;
-    }
-
     setState(() {
       _fsmEventHandler!.processOnPointerHoverEvent(pointerHoverEvent);
     });

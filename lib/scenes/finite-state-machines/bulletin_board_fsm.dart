@@ -2,6 +2,7 @@
 
 import 'package:astali/cards-management/bulletin-board-cards/presentation/bulletin_board_card.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
 import 'package:astali/input-management/pointer_events.dart';
 
 // FSM
@@ -32,11 +33,12 @@ abstract class BulletinBoardFSMState
   void setBulletinCardsList(BulletinBoardCards cards);
   void setFiniteStateMachine(BulletinBoardNonDeterministicFSMBaseType fsm);
   void setStateResolver(BulletinBoardFSMStateResolverBaseType resolver);
+  void setSelectionController(
+      BulletinBoardCardSafeSelectionController selectionController);
   void onPointerHover(PointerHoverEvent pointerHoverEvent);
   void onPointerUp(PointerUpEvent pointerUpEvent);
   void onPointerDown(PointerDownEvent pointerDownEvent);
   void onAddCardEvent();
-  void onCardSelectionChanged(BulletinBoardCardID cardID, bool bIsSelected);
 }
 
 /// Utility base class for the bulletin state classes. This represents an invalid
@@ -46,7 +48,6 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
       final BulletinBoardCardIDGenerator cardIDGenerator)
       : _stateName = stateName,
         _cardsList = {},
-        _currentlySelectedCards = List.empty(growable: true),
         _cardsIDsGenerator = cardIDGenerator;
 
   @override
@@ -79,18 +80,6 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
   void onStateLeave() {}
 
   @override
-  void onCardSelectionChanged(BulletinBoardCardID cardID, bool bIsSelected) {
-    if (bIsSelected) {
-      _currentlySelectedCards.add(cardID);
-    } else {
-      // If the card is deselected then it previously must be selected. If this is not
-      // the case there is a problems with the bulletin board FSM states.
-      assert(_currentlySelectedCards.contains(cardID));
-      _currentlySelectedCards.remove(cardID);
-    }
-  }
-
-  @override
   void setBulletinCardsList(BulletinBoardCards cards) {
     _cardsList = cards;
   }
@@ -113,6 +102,12 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
     return _currentMousePos;
   }
 
+  @override
+  void setSelectionController(
+      BulletinBoardCardSafeSelectionController selectionController) {
+    _selectionController = selectionController;
+  }
+
   /// When transiting trhough one state to another we need to access
   /// shared data between states. This is a temporary solution to
   /// solve a bug where cards are spawned in old mouse positions during
@@ -127,7 +122,7 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
   BulletinBoardCards _cardsList;
   BulletinBoardNonDeterministicFSMBaseType? _ownerFSM;
   BulletinBoardFSMStateResolverBaseType? _stateResolver;
-  List<BulletinBoardCardID> _currentlySelectedCards;
+  BulletinBoardCardSafeSelectionController? _selectionController;
 }
 
 class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
@@ -151,14 +146,17 @@ class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
   void onPointerUp(PointerUpEvent pointerUpEvent) {
     super.onPointerUp(pointerUpEvent);
 
-    // We need to remove all the cards from the selection list.
-    for (var cardID in _currentlySelectedCards) {
-      final MousePoint oldMousePoint = _cardsList[cardID]!.cardPosition;
-      _cardsList[cardID] = BulletinBoardCard(
-          cardID: cardID,
-          cardPosition: oldMousePoint,
-          onBulletinBoardCardSelected: onCardSelectionChanged,
-          bSelected: false);
+    // We make a copy of the current selection set because we are possible going
+    // to update it in a for loop.
+    final BulletinBoardCardSelectionSet selectionSet = {
+      ..._selectionController!.getSelectedCardsIDs()
+    };
+
+    // For each selected card we want to set the selection state to false in case
+    // the pointer hit outside those cards. If this is not the case then
+    // the card has set the lock on the selection state and we won't de-select it.
+    for (var cardID in selectionSet) {
+      _selectionController!.safeSetCardSelectionStateOrSinkLock(cardID, false);
     }
   }
 }
@@ -170,13 +168,14 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
 
   @override
   void onStateEnter() {
+    assert(_selectionController != null);
     // If this method is called then we are coming from the idle state (becase it is the
     // only other state for this FSM). In this case we need to spawn a new card because the
     // user clicked on the "add card" button.
     _spawningCardID = _cardsIDsGenerator.generateID();
     _cardsList[_spawningCardID!] = (BulletinBoardCard(
         cardID: _spawningCardID!,
-        onBulletinBoardCardSelected: onCardSelectionChanged,
+        safeSelectionController: _selectionController!,
         cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition()));
   }
 
@@ -217,10 +216,11 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
 
   void _updateCreatingCard() {
     assert(_spawningCardID != null);
+    assert(_selectionController != null);
 
     _cardsList[_spawningCardID!] = BulletinBoardCard(
         cardID: _spawningCardID!,
-        onBulletinBoardCardSelected: onCardSelectionChanged,
+        safeSelectionController: _selectionController!,
         cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition());
   }
 
@@ -239,13 +239,15 @@ class BulletinBoardNonDeterministicFSM
     extends NonDeterministicFSM<BulletinBoardFSMStateName>
     implements FSMStateResolver<BulletinBoardFSMStateName> {
   BulletinBoardNonDeterministicFSM(
-      BulletinBoardCardIDGenerator cardsIDsGenerator)
+      BulletinBoardCardIDGenerator cardsIDsGenerator,
+      BulletinBoardCardSafeSelectionController safeSelectionController)
       : _fsmStates = {
           BulletinBoardFSMStateName.idle:
               BulletinBoardIdleFSMState(cardsIDsGenerator),
           BulletinBoardFSMStateName.creatingCard:
               BulletinBoardCreatingCardFSMState(cardsIDsGenerator)
         },
+        _safeSelectionController = safeSelectionController,
         super(DeferredInitializationFSMState());
 
   BulletinBoardFSMState getCurrentState() {
@@ -260,6 +262,7 @@ class BulletinBoardNonDeterministicFSM
     _fsmStates.forEach((key, state) {
       state.setFiniteStateMachine(this);
       state.setStateResolver(this);
+      state.setSelectionController(_safeSelectionController);
       state.setBulletinCardsList(boardCardsList);
     });
   }
@@ -281,6 +284,7 @@ class BulletinBoardNonDeterministicFSM
   }
 
   final Map<BulletinBoardFSMStateName, BulletinBoardFSMState> _fsmStates;
+  final BulletinBoardCardSafeSelectionController _safeSelectionController;
 }
 
 /// Utility class that partially solves violation of the Law of Demeter by
