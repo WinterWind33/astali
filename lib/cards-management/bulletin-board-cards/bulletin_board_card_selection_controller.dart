@@ -79,7 +79,11 @@ class BulletinBoardCardSafeSelectionControllerImpl
 
   void _changeState(
       BulletinBoardCardID cardID, bool bSelected, final bool lockState) {
-    _selectionMap[cardID] = BulletinBoardCardSelectionLock(lockState);
+    if (!bSelected) {
+      _selectionMap.remove(cardID);
+    } else {
+      _selectionMap[cardID] = BulletinBoardCardSelectionLock(lockState);
+    }
   }
 
   void _sinkLockIfSelected(BulletinBoardCardID cardID) {
