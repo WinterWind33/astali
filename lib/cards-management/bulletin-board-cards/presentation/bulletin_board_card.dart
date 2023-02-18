@@ -52,21 +52,37 @@ class BulletinBoardCardPresentation extends StatelessWidget {
         ),
         textInputAction: TextInputAction.newline,
         minLines: 1,
-        maxLines: 5);
+        maxLines: 4);
+  }
+
+  Widget _createDeleteCardButton(BuildContext context) {
+    return IconButton(
+        onPressed: () {},
+        icon: const Icon(Icons.delete),
+        color: Colors.red[800],
+        splashColor: Colors.grey[400],
+        hoverColor: Colors.grey[300],
+        splashRadius: 20.0,
+        iconSize: 20.0);
   }
 
   Widget _createCardMainBodyLayout(BuildContext context) {
     return Column(
         crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisAlignment: MainAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: _createTitleTextField(context, cardTitleFontSize)),
           Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child:
-                  _createDescriptionTextField(context, cardDescriptionFontSize))
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: _createDescriptionTextField(
+                  context, cardDescriptionFontSize)),
+          Padding(
+              padding: const EdgeInsets.only(left: 6, right: 6, top: 8),
+              child: Align(
+                  alignment: Alignment.bottomRight,
+                  child: _createDeleteCardButton(context)))
         ]);
   }
 
