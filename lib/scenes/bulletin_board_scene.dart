@@ -2,8 +2,8 @@
 
 // Astali cards
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
-import 'package:astali/cards-management/bulletin-board-cards/presentation/bulletin_board_card.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_cards_manager.dart';
 import 'package:astali/input-management/pointer_events.dart';
 
 // FSM
@@ -76,10 +76,14 @@ class BulletinBoardScene extends StatefulWidget {
 }
 
 class _BulletinBoardState extends State<BulletinBoardScene> {
+  /// Managers
+
   final BulletinBoardCardIDGenerator _bulletinBoardCardsIDsGenerator =
       BulletinBoardCardIDSimpleGenerator();
-  final BulletinBoardCards _bulletinCards = {};
-  BulletinBoardCardSafeSelectionController? _safeSelectionController;
+  final BulletinBoardCardsManager _bulletinBoardCardsManager =
+      BulletinBoardCardsManagerImpl();
+  final BulletinBoardCardSafeSelectionController _safeSelectionController =
+      BulletinBoardCardSafeSelectionControllerImpl();
 
   BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
   BulletinBoardFSMEventDispatcher? _fsmEventHandler;
@@ -88,7 +92,6 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   @override
   void initState() {
     super.initState();
-    _safeSelectionController = BulletinBoardCardSafeSelectionControllerImpl();
 
     _bulletinBoardFSM = BulletinBoardNonDeterministicFSM(
         _bulletinBoardCardsIDsGenerator, _safeSelectionController!);
@@ -98,7 +101,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
         onPointerUpEvent: _onMouseUp,
         onPointerDownEvent: _onPointerDown);
 
-    _bulletinBoardFSM!.initialize(_bulletinCards);
+    _bulletinBoardFSM!.initialize(_bulletinBoardCardsManager);
     _fsmEventHandler = BulletinBoardFSMEventDispatcher(_bulletinBoardFSM!);
   }
 
@@ -114,7 +117,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     return BulletinBoardScenePresentation(
         pointerEvents: _pointerEvents!,
         onCardAddEvent: _onCardAddEvent,
-        cardsToRender: _bulletinCards);
+        cardsToRender: _bulletinBoardCardsManager.getBulletinBoardCards());
   }
 
   void _onCardAddEvent() {
