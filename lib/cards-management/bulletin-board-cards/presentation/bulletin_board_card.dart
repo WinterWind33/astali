@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'dart:math';
 
 typedef OnCardFocusChanged = void Function(bool);
+typedef OnCardDeleteEventInternal = VoidCallback;
+typedef OnCardDeleteEvent = void Function(BulletinBoardCardID cardID);
 
 class BulletinBoardCardPresentation extends StatelessWidget {
   static const double cardWidth = 200.0;
@@ -20,12 +22,14 @@ class BulletinBoardCardPresentation extends StatelessWidget {
       {required this.cardPosition,
       required this.onCardFocusChanged,
       required this.onPointerUpEvent,
+      required this.onCardDeleteEventInternal,
       required this.bSelected,
       super.key});
 
   final MousePoint cardPosition;
   final OnCardFocusChanged onCardFocusChanged;
   final OnPointerUpEvent onPointerUpEvent;
+  final OnCardDeleteEventInternal onCardDeleteEventInternal;
   final bool bSelected;
 
   TextField _createTitleTextField(BuildContext context, final double fontSize) {
@@ -57,7 +61,7 @@ class BulletinBoardCardPresentation extends StatelessWidget {
 
   Widget _createDeleteCardButton(BuildContext context) {
     return IconButton(
-        onPressed: () {},
+        onPressed: onCardDeleteEventInternal,
         icon: const Icon(Icons.delete),
         color: Colors.red[800],
         splashColor: Colors.grey[400],
@@ -178,11 +182,14 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     });
   }
 
+  void _onCardDeleteEvent() {}
+
   @override
   Widget build(BuildContext context) {
     return BulletinBoardCardPresentation(
         onCardFocusChanged: _onCardFocusChanged,
         onPointerUpEvent: _onPointerUpOnCard,
+        onCardDeleteEventInternal: _onCardDeleteEvent,
         bSelected: BulletinBoardCardSelectionUtils.isCardSelected(
             _bulletinBoardCardId!, _safeSelectionController!),
         cardPosition: widget.cardPosition);
