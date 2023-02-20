@@ -1,11 +1,13 @@
 // Copyright (c) 2023 Andrea Ballestrazzi
-import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
-import 'package:flutter/material.dart';
-
 import 'presentation/bulletin_board_card.dart';
+
+import 'bulletin_board_card_selection_controller.dart';
 import 'bulletin_board_card_id.dart';
 
 import 'package:astali/input-management/pointer_events.dart';
+
+// Core and engine
+import 'package:flutter/material.dart';
 
 typedef BulletinBoardCards = Map<BulletinBoardCardID, BulletinBoardCard>;
 
