@@ -1,5 +1,7 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
+import 'package:flutter/material.dart'; // for Key
+
 /// The ID of a bulletin board card.
 typedef BulletinBoardCardID = int;
 
@@ -26,4 +28,16 @@ class BulletinBoardCardIDSimpleGenerator
   }
 
   BulletinBoardCardID _currentCardID;
+}
+
+/// Represents the key used to create new bulletin board cards using their cardID.
+class BulletinBoardCardKey implements ValueKey<BulletinBoardCardID> {
+  const BulletinBoardCardKey(final BulletinBoardCardID cardID)
+      : _cardID = cardID,
+        super();
+
+  @override
+  get value => _cardID;
+
+  final BulletinBoardCardID _cardID;
 }

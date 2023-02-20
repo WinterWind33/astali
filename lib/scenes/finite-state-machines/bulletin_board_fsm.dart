@@ -193,7 +193,9 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
     // only other state for this FSM). In this case we need to spawn a new card because the
     // user clicked on the "add card" button.
     _spawningCardID = _cardsIDsGenerator.generateID();
-    Key cardKey = GlobalKey();
+    assert(_spawningCardID != null);
+    final BulletinBoardCardKey cardKey = BulletinBoardCardKey(_spawningCardID!);
+
     _cardsManager!.addCard(BulletinBoardCard(
         key: cardKey,
         cardID: _spawningCardID!,
