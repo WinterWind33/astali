@@ -145,14 +145,12 @@ class BulletinBoardCardPresentation extends StatelessWidget {
 
 class BulletinBoardCard extends StatefulWidget {
   const BulletinBoardCard(
-      {required this.cardID,
-      required this.cardPosition,
+      {required this.cardPosition,
       required this.safeSelectionController,
       required this.onCardDeleteEvent,
       super.key});
 
   final Point<double> cardPosition;
-  final BulletinBoardCardID cardID;
   final BulletinBoardCardSafeSelectionController safeSelectionController;
   final OnCardDeleteEvent onCardDeleteEvent;
 
@@ -168,7 +166,8 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
   @override
   void initState() {
     super.initState();
-    _bulletinBoardCardId = widget.cardID;
+    assert(widget.key != null);
+    _bulletinBoardCardId = BulletinBoardCardKey.retrieveIDFromKey(widget.key!);
 
     _safeSelectionController = widget.safeSelectionController;
     _onCardDeleteEvent = widget.onCardDeleteEvent;
@@ -205,6 +204,7 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
 
   @override
   Widget build(BuildContext context) {
+    print("Card [$_bulletinBoardCardId] > SetState() called.");
     return BulletinBoardCardPresentation(
         onCardFocusChanged: _onCardFocusChanged,
         onPointerUpEvent: _onPointerUpOnCard,

@@ -14,7 +14,6 @@ class BulletinBoardCardDataDiff {
   MousePoint? newMousePoint;
 
   BulletinBoardCard applyCardDiff(BulletinBoardCard oldCard) {
-    BulletinBoardCardID oldCardID = oldCard.cardID;
     BulletinBoardCardSafeSelectionController oldSelectionController =
         oldCard.safeSelectionController;
     OnCardDeleteEvent oldOnCardDeleteEvent = oldCard.onCardDeleteEvent;
@@ -23,7 +22,6 @@ class BulletinBoardCardDataDiff {
     if (newMousePoint != null) {
       return BulletinBoardCard(
         key: oldKey,
-        cardID: oldCardID,
         safeSelectionController: oldSelectionController,
         cardPosition: newMousePoint!,
         onCardDeleteEvent: oldOnCardDeleteEvent,
@@ -75,10 +73,12 @@ class BulletinBoardCardsManagerImpl implements BulletinBoardCardsManager {
 
   @override
   void addCard(BulletinBoardCard newCard) {
-    assert(!_containsCard(newCard.cardID));
+    final BulletinBoardCardID cardID =
+        BulletinBoardCardKey.retrieveIDFromKey(newCard.key!);
+    assert(!_containsCard(cardID));
 
     final BulletinBoardCard newAddedCard =
-        _bulletinBoardCards.putIfAbsent(newCard.cardID, () => newCard);
+        _bulletinBoardCards.putIfAbsent(cardID, () => newCard);
 
     _dispatchCardAdded(newAddedCard);
   }

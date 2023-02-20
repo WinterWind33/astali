@@ -40,4 +40,10 @@ class BulletinBoardCardKey implements ValueKey<BulletinBoardCardID> {
   get value => _cardID;
 
   final BulletinBoardCardID _cardID;
+
+  /// Utility function used to retrieve the ID from the given key.
+  /// NOTE: the given input key must be a bulletin board key.
+  static BulletinBoardCardID retrieveIDFromKey(Key cardKey) {
+    return (cardKey as BulletinBoardCardKey).value;
+  }
 }

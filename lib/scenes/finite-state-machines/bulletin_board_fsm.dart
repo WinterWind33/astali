@@ -10,7 +10,6 @@ import 'package:astali/input-management/pointer_events.dart';
 import 'package:astali/fsm/fsm_state.dart';
 import 'package:astali/fsm/fsm_transition.dart';
 import 'package:astali/fsm/finite_state_machine.dart';
-import 'package:flutter/cupertino.dart';
 
 // Core and engine
 import 'package:flutter/gestures.dart';
@@ -198,7 +197,6 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
 
     _cardsManager!.addCard(BulletinBoardCard(
         key: cardKey,
-        cardID: _spawningCardID!,
         safeSelectionController: _selectionController!,
         cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition(),
         onCardDeleteEvent: ((cardID) =>
