@@ -1,5 +1,6 @@
 // Copyright (c) 2023 Andrea Ballestrazzi
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
+import 'package:flutter/material.dart';
 
 import 'presentation/bulletin_board_card.dart';
 import 'bulletin_board_card_id.dart';
@@ -16,12 +17,16 @@ class BulletinBoardCardDataDiff {
     BulletinBoardCardID oldCardID = oldCard.cardID;
     BulletinBoardCardSafeSelectionController oldSelectionController =
         oldCard.safeSelectionController;
+    OnCardDeleteEvent oldOnCardDeleteEvent = oldCard.onCardDeleteEvent;
+    Key? oldKey = oldCard.key;
 
     if (newMousePoint != null) {
       return BulletinBoardCard(
+        key: oldKey,
         cardID: oldCardID,
         safeSelectionController: oldSelectionController,
         cardPosition: newMousePoint!,
+        onCardDeleteEvent: oldOnCardDeleteEvent,
       );
     }
 
@@ -29,8 +34,16 @@ class BulletinBoardCardDataDiff {
   }
 }
 
+abstract class BulletinBoardCardsManagerEventListener {
+  void onCardAdded(final BulletinBoardCard newCard);
+  void onCardDeleted(final BulletinBoardCardID oldCardID);
+}
+
 abstract class BulletinBoardCardsManager {
   BulletinBoardCards getBulletinBoardCards();
+
+  void registerEventListener(
+      BulletinBoardCardsManagerEventListener eventListener);
 
   void addCard(BulletinBoardCard newCard);
 
@@ -40,14 +53,34 @@ abstract class BulletinBoardCardsManager {
   void deleteCard(BulletinBoardCardID cardID);
 }
 
+class BulletinBoardCardsManagerQuerist {
+  const BulletinBoardCardsManagerQuerist(BulletinBoardCardsManager manager)
+      : _cardsManager = manager;
+
+  bool containsCard(final BulletinBoardCardID cardID) {
+    return _cardsManager.getBulletinBoardCards().containsKey(cardID);
+  }
+
+  final BulletinBoardCardsManager _cardsManager;
+}
+
 class BulletinBoardCardsManagerImpl implements BulletinBoardCardsManager {
   BulletinBoardCardsManagerImpl() : _bulletinBoardCards = {};
+
+  @override
+  void registerEventListener(
+      BulletinBoardCardsManagerEventListener eventListener) {
+    _eventListener = eventListener;
+  }
 
   @override
   void addCard(BulletinBoardCard newCard) {
     assert(!_containsCard(newCard.cardID));
 
-    _bulletinBoardCards.putIfAbsent(newCard.cardID, () => newCard);
+    final BulletinBoardCard newAddedCard =
+        _bulletinBoardCards.putIfAbsent(newCard.cardID, () => newCard);
+
+    _dispatchCardAdded(newAddedCard);
   }
 
   @override
@@ -55,6 +88,8 @@ class BulletinBoardCardsManagerImpl implements BulletinBoardCardsManager {
     assert(_containsCard(cardID));
 
     _bulletinBoardCards.remove(cardID);
+
+    _dispatchCardDeleted(cardID);
   }
 
   @override
@@ -75,5 +110,18 @@ class BulletinBoardCardsManagerImpl implements BulletinBoardCardsManager {
     return _bulletinBoardCards.containsKey(cardID);
   }
 
+  void _dispatchCardAdded(BulletinBoardCard newCard) {
+    if (_eventListener != null) {
+      _eventListener!.onCardAdded(newCard);
+    }
+  }
+
+  void _dispatchCardDeleted(final BulletinBoardCardID cardID) {
+    if (_eventListener != null) {
+      _eventListener!.onCardDeleted(cardID);
+    }
+  }
+
   final BulletinBoardCards _bulletinBoardCards;
+  BulletinBoardCardsManagerEventListener? _eventListener;
 }

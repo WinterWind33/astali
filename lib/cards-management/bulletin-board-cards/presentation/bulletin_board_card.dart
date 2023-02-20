@@ -148,11 +148,13 @@ class BulletinBoardCard extends StatefulWidget {
       {required this.cardID,
       required this.cardPosition,
       required this.safeSelectionController,
+      required this.onCardDeleteEvent,
       super.key});
 
   final Point<double> cardPosition;
   final BulletinBoardCardID cardID;
   final BulletinBoardCardSafeSelectionController safeSelectionController;
+  final OnCardDeleteEvent onCardDeleteEvent;
 
   @override
   State<BulletinBoardCard> createState() => _BulletinBoardCardState();
@@ -161,13 +163,20 @@ class BulletinBoardCard extends StatefulWidget {
 class _BulletinBoardCardState extends State<BulletinBoardCard> {
   BulletinBoardCardID? _bulletinBoardCardId;
   BulletinBoardCardSafeSelectionController? _safeSelectionController;
+  OnCardDeleteEvent? _onCardDeleteEvent;
 
   @override
   void initState() {
     super.initState();
-
     _bulletinBoardCardId = widget.cardID;
+
     _safeSelectionController = widget.safeSelectionController;
+    _onCardDeleteEvent = widget.onCardDeleteEvent;
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
@@ -182,14 +191,24 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     });
   }
 
-  void _onCardDeleteEvent() {}
+  void _onCardDeleteButtonEvent() {
+    assert(_onCardDeleteEvent != null);
+    assert(_bulletinBoardCardId != null);
+
+    // We need to unlock the selection state because the card is selected
+    // before this event is triggered, so it may happen that the selection
+    // state is locked.
+    _safeSelectionController!
+        .safeSetCardSelectionStateOrSinkLock(_bulletinBoardCardId!, false);
+    _onCardDeleteEvent!(_bulletinBoardCardId!);
+  }
 
   @override
   Widget build(BuildContext context) {
     return BulletinBoardCardPresentation(
         onCardFocusChanged: _onCardFocusChanged,
         onPointerUpEvent: _onPointerUpOnCard,
-        onCardDeleteEventInternal: _onCardDeleteEvent,
+        onCardDeleteEventInternal: _onCardDeleteButtonEvent,
         bSelected: BulletinBoardCardSelectionUtils.isCardSelected(
             _bulletinBoardCardId!, _safeSelectionController!),
         cardPosition: widget.cardPosition);

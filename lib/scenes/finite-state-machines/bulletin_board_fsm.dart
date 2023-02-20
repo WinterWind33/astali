@@ -10,6 +10,7 @@ import 'package:astali/input-management/pointer_events.dart';
 import 'package:astali/fsm/fsm_state.dart';
 import 'package:astali/fsm/fsm_transition.dart';
 import 'package:astali/fsm/finite_state_machine.dart';
+import 'package:flutter/cupertino.dart';
 
 // Core and engine
 import 'package:flutter/gestures.dart';
@@ -111,16 +112,16 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
     return _cardsManager!.getBulletinBoardCards();
   }
 
-  void _onCardDeleteEvent(BulletinBoardCardID cardID) {
-    assert(_cardsManager != null);
-    assert(_selectionController != null);
-
+  static void _onCardDeleteEvent(
+      BulletinBoardCardsManager cardsManager,
+      BulletinBoardCardSafeSelectionController selectionController,
+      BulletinBoardCardID cardID) {
     // Firtly we need to remove the card from the current
     // selection if it's selected.
-    _selectionController!.safeSetCardSelectionState(cardID, false);
+    selectionController.safeSetCardSelectionState(cardID, false);
 
     // Next we can remove the card from the cards manager.
-    _cardsManager!.deleteCard(cardID);
+    cardsManager.deleteCard(cardID);
   }
 
   /// When transiting trhough one state to another we need to access
@@ -192,10 +193,15 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
     // only other state for this FSM). In this case we need to spawn a new card because the
     // user clicked on the "add card" button.
     _spawningCardID = _cardsIDsGenerator.generateID();
+    Key cardKey = GlobalKey();
     _cardsManager!.addCard(BulletinBoardCard(
+        key: cardKey,
         cardID: _spawningCardID!,
         safeSelectionController: _selectionController!,
-        cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition()));
+        cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition(),
+        onCardDeleteEvent: ((cardID) =>
+            BulletinBoardEmptyFSMState._onCardDeleteEvent(
+                _cardsManager!, _selectionController!, cardID))));
   }
 
   @override

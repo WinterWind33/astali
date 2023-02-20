@@ -4,10 +4,12 @@
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_cards_manager.dart';
+import 'package:astali/cards-management/bulletin-board-cards/presentation/bulletin_board_card.dart';
 import 'package:astali/input-management/pointer_events.dart';
 
 // FSM
 import 'finite-state-machines/bulletin_board_fsm.dart';
+import 'package:astali/fsm/finite_state_machine.dart';
 
 // Core and engine
 import 'package:flutter/gestures.dart';
@@ -48,6 +50,7 @@ class BulletinBoardScenePresentation extends StatelessWidget {
   }
 
   Widget _createBody() {
+    var list = cardsToRender.values.toList();
     return Listener(
         onPointerHover: pointerEvents.onPointerHoverEvent,
         onPointerUp: pointerEvents.onPointerUpEvent,
@@ -55,7 +58,7 @@ class BulletinBoardScenePresentation extends StatelessWidget {
         child: Container(
             color: const Color.fromARGB(255, 156, 111, 62),
             child: Stack(
-              children: cardsToRender.values.toList(),
+              children: list,
             )));
   }
 
@@ -68,11 +71,40 @@ class BulletinBoardScenePresentation extends StatelessWidget {
   }
 }
 
+typedef OnBulletinBoardCardManagerAddCardEvent = void Function(
+    BulletinBoardCard);
+
+typedef OnBulletinBoardCardManagerDeleteCardEvent = void Function(
+    BulletinBoardCardID);
+
 class BulletinBoardScene extends StatefulWidget {
   const BulletinBoardScene({super.key});
 
   @override
   State<BulletinBoardScene> createState() => _BulletinBoardState();
+}
+
+class BulletinBoardCardsManagerDelegator
+    implements BulletinBoardCardsManagerEventListener {
+  BulletinBoardCardsManagerDelegator(
+      {this.onAddCardDelegate, this.onDeleteDelegate});
+
+  @override
+  void onCardAdded(BulletinBoardCard newCard) {
+    if (onAddCardDelegate != null) {
+      onAddCardDelegate!(newCard);
+    }
+  }
+
+  @override
+  void onCardDeleted(BulletinBoardCardID oldCardID) {
+    if (onDeleteDelegate != null) {
+      onDeleteDelegate!(oldCardID);
+    }
+  }
+
+  OnBulletinBoardCardManagerDeleteCardEvent? onDeleteDelegate;
+  OnBulletinBoardCardManagerAddCardEvent? onAddCardDelegate;
 }
 
 class _BulletinBoardState extends State<BulletinBoardScene> {
@@ -93,8 +125,12 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   void initState() {
     super.initState();
 
+    _bulletinBoardCardsManager.registerEventListener(
+        BulletinBoardCardsManagerDelegator(
+            onDeleteDelegate: _onCardDeletedEvent));
+
     _bulletinBoardFSM = BulletinBoardNonDeterministicFSM(
-        _bulletinBoardCardsIDsGenerator, _safeSelectionController!);
+        _bulletinBoardCardsIDsGenerator, _safeSelectionController);
 
     _pointerEvents = BulletinBoardScenePointerEvents(
         onPointerHoverEvent: _onMouseHover,
@@ -126,10 +162,18 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     });
   }
 
+  void _onCardDeletedEvent(BulletinBoardCardID cardID) {
+    setState(() {});
+  }
+
   void _onMouseHover(PointerHoverEvent pointerHoverEvent) {
-    setState(() {
+    if (isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.idle)) {
       _fsmEventHandler!.processOnPointerHoverEvent(pointerHoverEvent);
-    });
+    } else {
+      setState(() {
+        _fsmEventHandler!.processOnPointerHoverEvent(pointerHoverEvent);
+      });
+    }
   }
 
   void _onPointerDown(PointerDownEvent pointerDownEvent) {
