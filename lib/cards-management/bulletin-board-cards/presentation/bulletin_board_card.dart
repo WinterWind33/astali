@@ -22,6 +22,7 @@ class BulletinBoardCardPresentation extends StatelessWidget {
       {required this.cardPosition,
       required this.onCardFocusChanged,
       required this.onPointerUpEvent,
+      required this.onPointerDownEvent,
       required this.onCardDeleteEventInternal,
       required this.bSelected,
       super.key});
@@ -29,6 +30,7 @@ class BulletinBoardCardPresentation extends StatelessWidget {
   final MousePoint cardPosition;
   final OnCardFocusChanged onCardFocusChanged;
   final OnPointerUpEvent onPointerUpEvent;
+  final OnPointerDownEvent onPointerDownEvent;
   final OnCardDeleteEventInternal onCardDeleteEventInternal;
   final bool bSelected;
 
@@ -119,6 +121,7 @@ class BulletinBoardCardPresentation extends StatelessWidget {
   Widget _createEventSensitiveArea(BuildContext context) {
     return Listener(
         onPointerUp: onPointerUpEvent,
+        onPointerDown: onPointerDownEvent,
         child: Focus(
             onFocusChange: (bHasFocus) {
               onCardFocusChanged(bHasFocus);
@@ -178,7 +181,9 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     super.dispose();
   }
 
-  void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
+  void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {}
+
+  void _onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
     setState(() {
       _onSelectionStateChanged(true);
     });
@@ -207,6 +212,7 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     return BulletinBoardCardPresentation(
         onCardFocusChanged: _onCardFocusChanged,
         onPointerUpEvent: _onPointerUpOnCard,
+        onPointerDownEvent: _onPointerDownOnCard,
         onCardDeleteEventInternal: _onCardDeleteButtonEvent,
         bSelected: BulletinBoardCardSelectionUtils.isCardSelected(
             _bulletinBoardCardId!, _safeSelectionController!),
