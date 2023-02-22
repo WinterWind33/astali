@@ -37,6 +37,11 @@ class BulletinBoardCardSelectionUtils {
       BulletinBoardCardSafeSelectionController selectionController) {
     return selectionController.getSelectedCardsIDs().contains(cardID);
   }
+
+  static void safeSinkLockAndPreserveState(final BulletinBoardCardID cardID,
+      BulletinBoardCardSafeSelectionController selectionController) {
+    selectionController.safeSetCardSelectionStateOrSinkLock(cardID, true);
+  }
 }
 
 class BulletinBoardCardSafeSelectionControllerImpl

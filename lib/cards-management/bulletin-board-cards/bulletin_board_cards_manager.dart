@@ -61,6 +61,11 @@ class BulletinBoardCardsManagerQuerist {
     return _cardsManager.getBulletinBoardCards().containsKey(cardID);
   }
 
+  BulletinBoardCard getCard(final BulletinBoardCardID cardID) {
+    assert(containsCard(cardID));
+    return _cardsManager.getBulletinBoardCards()[cardID]!;
+  }
+
   final BulletinBoardCardsManager _cardsManager;
 }
 

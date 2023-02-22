@@ -181,13 +181,9 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   }
 
   void _onPointerMove(PointerMoveEvent pointerMoveEvent) {
-    if (isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.idle)) {
+    setState(() {
       _fsmEventHandler!.processOnPointerMoveEvent(pointerMoveEvent);
-    } else {
-      setState(() {
-        _fsmEventHandler!.processOnPointerMoveEvent(pointerMoveEvent);
-      });
-    }
+    });
   }
 
   void _onPointerDown(PointerDownEvent pointerDownEvent) {

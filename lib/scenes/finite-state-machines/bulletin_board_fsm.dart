@@ -16,7 +16,7 @@ import 'package:flutter/gestures.dart';
 
 /// Represents the alphabet for the states of the bulletin
 /// board ND FSM.
-enum BulletinBoardFSMStateName { idle, creatingCard }
+enum BulletinBoardFSMStateName { idle, creatingCard, draggingCard }
 
 /// The underlying type of the bulletin board ND FSM.
 typedef BulletinBoardNonDeterministicFSMBaseType
@@ -184,6 +184,21 @@ class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
           cardID, BulletinBoardCardDataDiff(newMousePoint: oldMousePoint));
     }
   }
+
+  @override
+  void onPointerMove(PointerMoveEvent pointerMoveEvent) {
+    super.onPointerMove(pointerMoveEvent);
+
+    // If this event is triggered with a valid selection then the
+    // user wants to drag the cards. We need to transit to that state.
+    assert(_selectionController != null);
+    assert(_ownerFSM != null);
+    assert(_stateResolver != null);
+    if (_selectionController!.getSelectedCardsIDs().isNotEmpty) {
+      _ownerFSM!.transit(FSMSimpleTransition(_stateResolver!),
+          BulletinBoardFSMStateName.draggingCard);
+    }
+  }
 }
 
 class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
@@ -266,6 +281,97 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
   BulletinBoardCardID? _spawningCardID;
 }
 
+class BulletinBoardDraggingCardFSMState extends BulletinBoardEmptyFSMState {
+  BulletinBoardDraggingCardFSMState(
+      final BulletinBoardCardIDGenerator generator)
+      : super(BulletinBoardFSMStateName.draggingCard, generator);
+
+  @override
+  void onStateEnter() {
+    super.onStateEnter();
+
+    _updateLastMousePosition();
+    _updateCurrentSelection();
+  }
+
+  @override
+  void onStateLeave() {
+    super.onStateLeave();
+
+    // We need to sink the locks of the cards if they have one.
+    _sinkSelectionLocks();
+  }
+
+  @override
+  void onPointerMove(PointerMoveEvent pointerMoveEvent) {
+    super.onPointerMove(pointerMoveEvent);
+
+    _updateCurrentSelection();
+    _updateLastMousePosition();
+  }
+
+  @override
+  void onPointerUp(PointerUpEvent pointerUpEvent) {
+    super.onPointerUp(pointerUpEvent);
+
+    // We need to exit this state, the user finished the drag of the card.
+    assert(_ownerFSM != null);
+    assert(_stateResolver != null);
+    _ownerFSM!.transit(
+        FSMSimpleTransition(_stateResolver!), BulletinBoardFSMStateName.idle);
+  }
+
+  void _updateCurrentSelection() {
+    // We need to get the current selection ad dragging the card.
+    assert(_selectionController != null);
+    assert(_cardsManager != null);
+
+    final BulletinBoardCardSelectionSet selectionSet =
+        _selectionController!.getSelectedCardsIDs();
+
+    BulletinBoardCardsManagerQuerist querist =
+        BulletinBoardCardsManagerQuerist(_cardsManager!);
+
+    for (var cardID in selectionSet) {
+      final MousePoint dragOffset =
+          BulletinBoardEmptyFSMState._getCurrentMousePosition() -
+              _lastMousePosition;
+
+      final BulletinBoardCard currentCard = querist.getCard(cardID);
+      final MousePoint oldCardPosition = currentCard.cardPosition;
+      final MousePoint newCardPosition = oldCardPosition + dragOffset;
+
+      _cardsManager!.updateCard(
+          cardID, BulletinBoardCardDataDiff(newMousePoint: newCardPosition));
+    }
+  }
+
+  void _updateLastMousePosition() {
+    _lastMousePosition = BulletinBoardEmptyFSMState._getCurrentMousePosition();
+  }
+
+  void _sinkSelectionLocks() {
+    assert(_selectionController != null);
+    assert(_cardsManager != null);
+
+    // We need to get the current selection ad dragging the card.
+    final BulletinBoardCardSelectionSet selectionSet =
+        _selectionController!.getSelectedCardsIDs();
+
+    for (var cardID in selectionSet) {
+      // Here we don't want to de-select the card after the drag so we need
+      // to preserve the selection state. However, since there is a lock
+      // setted on the selection state (done before the drag) we need to sink
+      // that lock so the next time the user clicks on the bulletin board
+      // the card can be de-selected.
+      BulletinBoardCardSelectionUtils.safeSinkLockAndPreserveState(
+          cardID, _selectionController!);
+    }
+  }
+
+  MousePoint _lastMousePosition = const MousePoint(0.0, 0.0);
+}
+
 /// Represents the FSM that realizes the bulletin board non-deterministic finite state machine.
 class BulletinBoardNonDeterministicFSM
     extends NonDeterministicFSM<BulletinBoardFSMStateName>
@@ -277,7 +383,9 @@ class BulletinBoardNonDeterministicFSM
           BulletinBoardFSMStateName.idle:
               BulletinBoardIdleFSMState(cardsIDsGenerator),
           BulletinBoardFSMStateName.creatingCard:
-              BulletinBoardCreatingCardFSMState(cardsIDsGenerator)
+              BulletinBoardCreatingCardFSMState(cardsIDsGenerator),
+          BulletinBoardFSMStateName.draggingCard:
+              BulletinBoardDraggingCardFSMState(cardsIDsGenerator)
         },
         _safeSelectionController = safeSelectionController,
         super(DeferredInitializationFSMState());
