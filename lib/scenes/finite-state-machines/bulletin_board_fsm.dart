@@ -37,6 +37,7 @@ abstract class BulletinBoardFSMState
   void onPointerHover(PointerHoverEvent pointerHoverEvent);
   void onPointerUp(PointerUpEvent pointerUpEvent);
   void onPointerDown(PointerDownEvent pointerDownEvent);
+  void onPointerMove(PointerMoveEvent pointerMoveEvent);
   void onAddCardEvent();
 }
 
@@ -69,6 +70,11 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
   @override
   void onPointerUp(PointerUpEvent pointerUpEvent) {
     _updateCurrentMousePosition(pointerUpEvent.localPosition);
+  }
+
+  @override
+  void onPointerMove(PointerMoveEvent pointerMoveEvent) {
+    _updateCurrentMousePosition(pointerMoveEvent.localPosition);
   }
 
   @override
@@ -334,6 +340,10 @@ class BulletinBoardFSMEventDispatcher {
 
   void processOnPointerUpEvent(PointerUpEvent pointerUpEvent) {
     _getCurrentState().onPointerUp(pointerUpEvent);
+  }
+
+  void processOnPointerMoveEvent(PointerMoveEvent pointerMoveEvent) {
+    _getCurrentState().onPointerMove(pointerMoveEvent);
   }
 
   BulletinBoardFSMState _getCurrentState() {

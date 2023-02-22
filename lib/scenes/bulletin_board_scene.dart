@@ -23,11 +23,13 @@ class BulletinBoardScenePointerEvents {
   const BulletinBoardScenePointerEvents(
       {required this.onPointerHoverEvent,
       required this.onPointerUpEvent,
-      required this.onPointerDownEvent});
+      required this.onPointerDownEvent,
+      required this.onPointerMoveEvent});
 
   final OnPointerHoverEvent onPointerHoverEvent;
   final OnPointerUpEvent onPointerUpEvent;
   final OnPointerDownEvent onPointerDownEvent;
+  final OnPointerMoveEvent onPointerMoveEvent;
 }
 
 class BulletinBoardScenePresentation extends StatelessWidget {
@@ -55,6 +57,7 @@ class BulletinBoardScenePresentation extends StatelessWidget {
         onPointerHover: pointerEvents.onPointerHoverEvent,
         onPointerUp: pointerEvents.onPointerUpEvent,
         onPointerDown: pointerEvents.onPointerDownEvent,
+        onPointerMove: pointerEvents.onPointerMoveEvent,
         child: Container(
             color: const Color.fromARGB(255, 156, 111, 62),
             child: Stack(
@@ -135,7 +138,8 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     _pointerEvents = BulletinBoardScenePointerEvents(
         onPointerHoverEvent: _onMouseHover,
         onPointerUpEvent: _onMouseUp,
-        onPointerDownEvent: _onPointerDown);
+        onPointerDownEvent: _onPointerDown,
+        onPointerMoveEvent: _onPointerMove);
 
     _bulletinBoardFSM!.initialize(_bulletinBoardCardsManager);
     _fsmEventHandler = BulletinBoardFSMEventDispatcher(_bulletinBoardFSM!);
@@ -172,6 +176,16 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     } else {
       setState(() {
         _fsmEventHandler!.processOnPointerHoverEvent(pointerHoverEvent);
+      });
+    }
+  }
+
+  void _onPointerMove(PointerMoveEvent pointerMoveEvent) {
+    if (isInState(_bulletinBoardFSM!, BulletinBoardFSMStateName.idle)) {
+      _fsmEventHandler!.processOnPointerMoveEvent(pointerMoveEvent);
+    } else {
+      setState(() {
+        _fsmEventHandler!.processOnPointerMoveEvent(pointerMoveEvent);
       });
     }
   }
