@@ -204,7 +204,6 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
 
   @override
   Widget build(BuildContext context) {
-    print("Card [$_bulletinBoardCardId] > SetState() called.");
     return BulletinBoardCardPresentation(
         onCardFocusChanged: _onCardFocusChanged,
         onPointerUpEvent: _onPointerUpOnCard,
