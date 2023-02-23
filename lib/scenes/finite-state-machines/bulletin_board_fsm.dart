@@ -164,8 +164,8 @@ class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
   }
 
   @override
-  void onPointerUp(PointerUpEvent pointerUpEvent) {
-    super.onPointerUp(pointerUpEvent);
+  void onPointerDown(PointerDownEvent pointerUpEvent) {
+    super.onPointerDown(pointerUpEvent);
 
     // We make a copy of the current selection set because we are possible going
     // to update it in a for loop.
