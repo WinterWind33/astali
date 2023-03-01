@@ -156,7 +156,7 @@ class BulletinBoardCard extends StatefulWidget {
       required this.cardFSM,
       super.key});
 
-  final bbcard_fsm.BulletinBoardCardFSMType cardFSM;
+  final bbcard_fsm.BulletinBoardCardFiniteStateMachine cardFSM;
   final Point<double> cardPosition;
   final BulletinBoardCardSafeSelectionController safeSelectionController;
   final OnCardDeleteEvent onCardDeleteEvent;
@@ -167,6 +167,8 @@ class BulletinBoardCard extends StatefulWidget {
 
 class _BulletinBoardCardState extends State<BulletinBoardCard> {
   BulletinBoardCardID? _bulletinBoardCardId;
+  bbcard_fsm.BulletinBoardCardFiniteStateMachine? _cardFSM;
+
   BulletinBoardCardSafeSelectionController? _safeSelectionController;
   OnCardDeleteEvent? _onCardDeleteEvent;
 
@@ -175,6 +177,7 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     super.initState();
     assert(widget.key != null);
     _bulletinBoardCardId = BulletinBoardCardKey.retrieveIDFromKey(widget.key!);
+    _cardFSM = widget.cardFSM;
 
     _safeSelectionController = widget.safeSelectionController;
     _onCardDeleteEvent = widget.onCardDeleteEvent;
@@ -185,7 +188,9 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     super.dispose();
   }
 
-  void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {}
+  void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
+    assert(_cardFSM != null);
+  }
 
   void _onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
     setState(() {

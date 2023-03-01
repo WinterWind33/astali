@@ -4,6 +4,7 @@
 import 'package:astali/fsm/fsm_state.dart' as fsm_core;
 import 'package:astali/fsm/fsm_transition.dart' as fsm_core;
 import 'package:astali/fsm/finite_state_machine.dart' as fsm_core;
+import 'package:astali/scenes/finite-state-machines/bulletin_board_fsm.dart';
 
 // Core and engine
 import 'package:flutter/cupertino.dart';
@@ -123,10 +124,15 @@ class BulletinBoardCardDeletingFSMState extends BulletinBoardCardFSMStateBase {
 }
 
 abstract class BulletinBoardCardFiniteStateMachine
-    extends BulletinBoardCardFSMStateResolverType {
+    extends BulletinBoardCardFSMType {
+  BulletinBoardCardFiniteStateMachine()
+      : super(fsm_core.DeferredInitializationFSMState());
+
   void initialize();
 
   void forceTransitToIdleState();
+
+  BulletinBoardCardFSMState getCurrentState();
 }
 
 class BulletinBoardCardFSMUtils {
@@ -147,10 +153,10 @@ class BulletinBoardCardFSMUtils {
   }
 }
 
-class BulletinBoardCardNonDeterministicFSM extends BulletinBoardCardFSMType
-    implements BulletinBoardCardFiniteStateMachine {
-  BulletinBoardCardNonDeterministicFSM()
-      : super(fsm_core.DeferredInitializationFSMState());
+class BulletinBoardCardNonDeterministicFSM
+    extends BulletinBoardCardFiniteStateMachine
+    implements BulletinBoardCardFSMStateResolverType {
+  BulletinBoardCardNonDeterministicFSM() : super();
 
   @override
   Set<BulletinBoardCardFSMStateName> getAlphabet() {
@@ -190,6 +196,11 @@ class BulletinBoardCardNonDeterministicFSM extends BulletinBoardCardFSMType
     if (!BulletinBoardCardFSMUtils.isInIdleState(this)) {
       _transitToIdleState();
     }
+  }
+
+  @override
+  BulletinBoardCardFSMState getCurrentState() {
+    return _fsmStates[getCurrentStateName()]!;
   }
 
   void _transitToIdleState() {

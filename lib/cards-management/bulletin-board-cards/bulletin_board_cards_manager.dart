@@ -24,7 +24,7 @@ class BulletinBoardCardDataDiff {
         oldCard.safeSelectionController;
     OnCardDeleteEvent oldOnCardDeleteEvent = oldCard.onCardDeleteEvent;
     Key? oldKey = oldCard.key;
-    bbcard_fsm.BulletinBoardCardFSMType oldFSM = oldCard.cardFSM;
+    bbcard_fsm.BulletinBoardCardFiniteStateMachine oldFSM = oldCard.cardFSM;
 
     if (newMousePoint != null) {
       return BulletinBoardCard(
