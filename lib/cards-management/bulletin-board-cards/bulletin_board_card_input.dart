@@ -6,6 +6,15 @@ import 'bulletin_board_card_id.dart';
 // Input managment
 import 'package:flutter/gestures.dart';
 
+typedef OnPointerUpOnBulletinBoardCard = void Function(
+    BulletinBoardCardID, PointerUpEvent);
+
+typedef OnPointerDownOnBulletinBoardCard = void Function(
+    BulletinBoardCardID, PointerDownEvent);
+
+typedef OnBulletinBoardCardFocusChanged = void Function(
+    BulletinBoardCardID, bool);
+
 /// Represents the basic interface of a card controller that can handle raw
 /// inputs for a bulletin board card.
 abstract class BulletinBoardCardRawInputController {
