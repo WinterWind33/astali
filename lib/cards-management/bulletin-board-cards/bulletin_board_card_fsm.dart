@@ -21,9 +21,20 @@ abstract class BulletinBoardCardFSMState extends BulletinBaordCardFSMStateType {
   void onCardDeletionRequested();
 }
 
+typedef BulletinBoardCardFSMType
+    = fsm_core.NonDeterministicFSM<BulletinBoardCardFSMStateName>;
+
+typedef BulletinBoardCardFSMStateResolverType
+    = fsm_core.FSMStateResolver<BulletinBoardCardFSMStateName>;
+
 class BulletinBoardCardFSMStateBase implements BulletinBoardCardFSMState {
-  const BulletinBoardCardFSMStateBase(final BulletinBoardCardFSMStateName name)
-      : _stateName = name;
+  const BulletinBoardCardFSMStateBase(
+      final BulletinBoardCardFSMStateName name,
+      final BulletinBoardCardFSMType ownerFSM,
+      final BulletinBoardCardFSMStateResolverType stateResolver)
+      : _stateName = name,
+        _ownerFSM = ownerFSM,
+        _stateResolver = stateResolver;
 
   @override
   BulletinBoardCardFSMStateName getStateName() {
@@ -31,7 +42,12 @@ class BulletinBoardCardFSMStateBase implements BulletinBoardCardFSMState {
   }
 
   @override
-  void onCardDeletionRequested() {}
+  void onCardDeletionRequested() {
+    if (_stateName != BulletinBoardCardFSMStateName.deleting) {
+      _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+          BulletinBoardCardFSMStateName.deleting);
+    }
+  }
 
   @override
   void onCardFocusChanged(bool bHasFocus) {}
@@ -49,27 +65,92 @@ class BulletinBoardCardFSMStateBase implements BulletinBoardCardFSMState {
   void onStateLeave() {}
 
   final BulletinBoardCardFSMStateName _stateName;
+  final BulletinBoardCardFSMType _ownerFSM;
+  final BulletinBoardCardFSMStateResolverType _stateResolver;
 }
 
 class BulletinBoardCardIdleFSMState extends BulletinBoardCardFSMStateBase {
-  const BulletinBoardCardIdleFSMState()
-      : super(BulletinBoardCardFSMStateName.idle);
+  const BulletinBoardCardIdleFSMState(final BulletinBoardCardFSMType ownerFSM,
+      final BulletinBoardCardFSMStateResolverType stateResolver)
+      : super(BulletinBoardCardFSMStateName.idle, ownerFSM, stateResolver);
+
+  @override
+  void onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
+    // We need to go to the selected state, because the pointer is
+    // down on this specified card.
+    _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+        BulletinBoardCardFSMStateName.selected);
+  }
 }
 
-typedef BulletinBoardCardFSMType
-    = fsm_core.NonDeterministicFSM<BulletinBoardCardFSMStateName>;
+class BulletinBoardCardSelectedFSMState extends BulletinBoardCardFSMStateBase {
+  const BulletinBoardCardSelectedFSMState(
+      final BulletinBoardCardFSMType ownerFSM,
+      final BulletinBoardCardFSMStateResolverType stateResolver)
+      : super(BulletinBoardCardFSMStateName.selected, ownerFSM, stateResolver);
 
-typedef BulletinBoardCardFSMStateResolverType
-    = fsm_core.FSMStateResolver<BulletinBoardCardFSMStateName>;
+  @override
+  void onCardFocusChanged(bool bHasFocus) {
+    // We should be here only when the card has focus because
+    // when it loses the focus the card should be in editing state.
+    assert(bHasFocus);
+
+    _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+        BulletinBoardCardFSMStateName.editing);
+  }
+}
+
+class BulletinBoardCardEditingFSMState extends BulletinBoardCardFSMStateBase {
+  const BulletinBoardCardEditingFSMState(
+      final BulletinBoardCardFSMType ownerFSM,
+      final BulletinBoardCardFSMStateResolverType stateResolver)
+      : super(BulletinBoardCardFSMStateName.editing, ownerFSM, stateResolver);
+
+  @override
+  void onCardFocusChanged(bool bHasFocus) {
+    assert(!bHasFocus);
+
+    _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+        BulletinBoardCardFSMStateName.selected);
+  }
+}
+
+class BulletinBoardCardDeletingFSMState extends BulletinBoardCardFSMStateBase {
+  const BulletinBoardCardDeletingFSMState(
+      final BulletinBoardCardFSMType ownerFSM,
+      final BulletinBoardCardFSMStateResolverType stateResolver)
+      : super(BulletinBoardCardFSMStateName.deleting, ownerFSM, stateResolver);
+}
+
+abstract class BulletinBoardCardFiniteStateMachine
+    extends BulletinBoardCardFSMStateResolverType {
+  void initialize();
+
+  void forceTransitToIdleState();
+}
+
+class BulletinBoardCardFSMUtils {
+  static bool isInIdleState(BulletinBoardCardFSMType fsm) {
+    return fsm.getCurrentStateName() == BulletinBoardCardFSMStateName.idle;
+  }
+
+  static bool isInSelectedState(BulletinBoardCardFSMType fsm) {
+    return fsm.getCurrentStateName() == BulletinBoardCardFSMStateName.selected;
+  }
+
+  static bool isInEditingState(BulletinBoardCardFSMType fsm) {
+    return fsm.getCurrentStateName() == BulletinBoardCardFSMStateName.editing;
+  }
+
+  static bool isInSelectedOrEditingState(BulletinBoardCardFSMType fsm) {
+    return isInSelectedState(fsm) || isInEditingState(fsm);
+  }
+}
 
 class BulletinBoardCardNonDeterministicFSM extends BulletinBoardCardFSMType
-    implements BulletinBoardCardFSMStateResolverType {
+    implements BulletinBoardCardFiniteStateMachine {
   BulletinBoardCardNonDeterministicFSM()
-      : _fsmStates = {
-          BulletinBoardCardFSMStateName.idle:
-              const BulletinBoardCardIdleFSMState()
-        },
-        super(fsm_core.DeferredInitializationFSMState());
+      : super(fsm_core.DeferredInitializationFSMState());
 
   @override
   Set<BulletinBoardCardFSMStateName> getAlphabet() {
@@ -86,6 +167,35 @@ class BulletinBoardCardNonDeterministicFSM extends BulletinBoardCardFSMType
     throw UnimplementedError();
   }
 
-  final Map<BulletinBoardCardFSMStateName, BulletinBoardCardFSMState>
-      _fsmStates;
+  @override
+  void initialize() {
+    // Before going to the initial state we need to allocate all the states
+    // for this card.
+    _fsmStates = {
+      BulletinBoardCardFSMStateName.idle:
+          BulletinBoardCardIdleFSMState(this, this),
+      BulletinBoardCardFSMStateName.selected:
+          BulletinBoardCardSelectedFSMState(this, this),
+      BulletinBoardCardFSMStateName.editing:
+          BulletinBoardCardEditingFSMState(this, this),
+      BulletinBoardCardFSMStateName.deleting:
+          BulletinBoardCardDeletingFSMState(this, this)
+    };
+
+    _transitToIdleState();
+  }
+
+  @override
+  void forceTransitToIdleState() {
+    if (!BulletinBoardCardFSMUtils.isInIdleState(this)) {
+      _transitToIdleState();
+    }
+  }
+
+  void _transitToIdleState() {
+    transit(
+        fsm_core.FSMSimpleTransition(this), BulletinBoardCardFSMStateName.idle);
+  }
+
+  Map<BulletinBoardCardFSMStateName, BulletinBoardCardFSMState> _fsmStates = {};
 }
