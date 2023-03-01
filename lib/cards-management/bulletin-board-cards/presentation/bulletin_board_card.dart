@@ -189,31 +189,19 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
   }
 
   void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
-    assert(_cardFSM != null);
+    _getCurrentFSMState().onPointerUpOnCard(pointerUpEvent);
   }
 
   void _onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
-    setState(() {
-      _onSelectionStateChanged(true);
-    });
+    _getCurrentFSMState().onPointerDownOnCard(pointerDownEvent);
   }
 
   void _onCardFocusChanged(final bool bHasFocus) {
-    setState(() {
-      _onSelectionStateChanged(bHasFocus);
-    });
+    _getCurrentFSMState().onCardFocusChanged(bHasFocus);
   }
 
   void _onCardDeleteButtonEvent() {
-    assert(_onCardDeleteEvent != null);
-    assert(_bulletinBoardCardId != null);
-
-    // We need to unlock the selection state because the card is selected
-    // before this event is triggered, so it may happen that the selection
-    // state is locked.
-    _safeSelectionController!
-        .safeSetCardSelectionStateOrSinkLock(_bulletinBoardCardId!, false);
-    _onCardDeleteEvent!(_bulletinBoardCardId!);
+    _getCurrentFSMState().onCardDeletionRequested();
   }
 
   @override
@@ -223,13 +211,19 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
         onPointerUpEvent: _onPointerUpOnCard,
         onPointerDownEvent: _onPointerDownOnCard,
         onCardDeleteEventInternal: _onCardDeleteButtonEvent,
-        bSelected: BulletinBoardCardSelectionUtils.isCardSelected(
-            _bulletinBoardCardId!, _safeSelectionController!),
+        bSelected:
+            bbcard_fsm.BulletinBoardCardFSMUtils.isInSelectedOrEditingState(
+                _cardFSM!),
         cardPosition: widget.cardPosition);
   }
 
   void _onSelectionStateChanged(final bool bSelected) {
     _safeSelectionController!
         .safeSetCardSelectionStateAndLock(_bulletinBoardCardId!, bSelected);
+  }
+
+  bbcard_fsm.BulletinBoardCardFSMState _getCurrentFSMState() {
+    assert(_cardFSM != null);
+    return _cardFSM!.getCurrentState();
   }
 }
