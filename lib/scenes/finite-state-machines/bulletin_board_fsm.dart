@@ -7,6 +7,11 @@ import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card
 import 'package:astali/input-management/pointer_events.dart';
 
 // FSM
+// Bulletin board card
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart'
+    as bbcard_fsm;
+
+// Core
 import 'package:astali/fsm/fsm_state.dart';
 import 'package:astali/fsm/fsm_transition.dart';
 import 'package:astali/fsm/finite_state_machine.dart';
@@ -218,6 +223,7 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
 
     _cardsManager!.addCard(BulletinBoardCard(
         key: cardKey,
+        cardFSM: bbcard_fsm.BulletinBoardCardNonDeterministicFSM(),
         safeSelectionController: _selectionController!,
         cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition(),
         onCardDeleteEvent: ((cardID) =>

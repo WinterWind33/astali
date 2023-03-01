@@ -2,6 +2,8 @@
 
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart'
+    as bbcard_fsm;
 import 'package:astali/input-management/pointer_events.dart';
 
 // Core and engine
@@ -151,8 +153,10 @@ class BulletinBoardCard extends StatefulWidget {
       {required this.cardPosition,
       required this.safeSelectionController,
       required this.onCardDeleteEvent,
+      required this.cardFSM,
       super.key});
 
+  final bbcard_fsm.BulletinBoardCardFSMType cardFSM;
   final Point<double> cardPosition;
   final BulletinBoardCardSafeSelectionController safeSelectionController;
   final OnCardDeleteEvent onCardDeleteEvent;
