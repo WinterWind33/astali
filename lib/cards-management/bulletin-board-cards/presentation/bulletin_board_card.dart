@@ -156,11 +156,9 @@ class BulletinBoardCard extends StatefulWidget {
       required this.safeSelectionController,
       required this.onCardDeleteEvent,
       required this.cardFSM,
-      required this.rawInputController,
       super.key});
 
   final bbcard_fsm.BulletinBoardCardFiniteStateMachine cardFSM;
-  final bbcard_input.BulletinBoardCardRawInputController rawInputController;
   final Point<double> cardPosition;
   final BulletinBoardCardSafeSelectionController safeSelectionController;
   final OnCardDeleteEvent onCardDeleteEvent;

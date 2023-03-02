@@ -124,15 +124,6 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
     return _cardsManager!.getBulletinBoardCards();
   }
 
-  bbcard_input.BulletinBoardCardRawInputController
-      _getStandardRawInputController() {
-    return bbcard_input.BulletinBoardCardRawInputNotifier(
-        <bbcard_input.OnPointerUpOnBulletinBoardCard>{},
-        <bbcard_input.OnPointerDownOnBulletinBoardCard>{},
-        <bbcard_input.OnBulletinBoardCardFocusChanged>{},
-        null);
-  }
-
   static void _onCardDeleteEvent(
       BulletinBoardCardsManager cardsManager,
       BulletinBoardCardSafeSelectionController selectionController,
@@ -243,7 +234,6 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
         key: cardKey,
         cardFSM:
             bbcard_fsm.BulletinBoardCardNonDeterministicFSM(_cardsManager!),
-        rawInputController: _getStandardRawInputController(),
         safeSelectionController: _selectionController!,
         cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition(),
         onCardDeleteEvent: ((cardID) =>
