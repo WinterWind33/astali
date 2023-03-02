@@ -167,6 +167,9 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   }
 
   void _onCardDeletedEvent(BulletinBoardCardID cardID) {
+    // If the card was in the selection list we need to delete
+    // it from the list.
+    _safeSelectionController.safeSetCardSelectionState(cardID, false);
     setState(() {});
   }
 

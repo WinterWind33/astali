@@ -181,8 +181,8 @@ class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
   }
 
   @override
-  void onPointerDown(PointerDownEvent pointerUpEvent) {
-    super.onPointerDown(pointerUpEvent);
+  void onPointerDown(PointerDownEvent pointerDownEvent) {
+    super.onPointerDown(pointerDownEvent);
 
     // We make a copy of the current selection set because we are possible going
     // to update it in a for loop.
@@ -205,29 +205,6 @@ class BulletinBoardIdleFSMState extends BulletinBoardEmptyFSMState {
       final MousePoint oldMousePoint = cards[cardID]!.cardPosition;
       _cardsManager!.updateCard(
           cardID, BulletinBoardCardDataDiff(newMousePoint: oldMousePoint));
-    }
-  }
-
-  @override
-  void onPointerUp(PointerUpEvent pointerUpEvent) {
-    super.onPointerUp(pointerUpEvent);
-
-    final BulletinBoardCardSelectionSet selectionSet = {
-      ..._selectionController!.getSelectedCardsIDs()
-    };
-
-    // For each selected card we want to set the selection state to false in case
-    // the pointer hit outside those cards. If this is not the case then
-    // the card has set the lock on the selection state and we won't de-select it.
-    final BulletinBoardCards cards = _getBulletinBoardsCards();
-    for (var cardID in selectionSet) {
-      final BulletinBoardCard card = cards[cardID]!;
-
-      if (bbcard_fsm.BulletinBoardCardFSMUtils.isInDeletingState(
-          card.cardFSM)) {
-        BulletinBoardEmptyFSMState._onCardDeleteEvent(
-            _cardsManager!, _selectionController!, cardID);
-      }
     }
   }
 
@@ -264,7 +241,8 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
 
     _cardsManager!.addCard(BulletinBoardCard(
         key: cardKey,
-        cardFSM: bbcard_fsm.BulletinBoardCardNonDeterministicFSM(),
+        cardFSM:
+            bbcard_fsm.BulletinBoardCardNonDeterministicFSM(_cardsManager!),
         rawInputController: _getStandardRawInputController(),
         safeSelectionController: _selectionController!,
         cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition(),
