@@ -1,5 +1,7 @@
 // Copyright (c) 2023 Andrea Ballestrazzi
 
+import 'bulletin_board_card_id.dart';
+
 // FSM
 import 'package:astali/fsm/fsm_state.dart' as fsm_core;
 import 'package:astali/fsm/fsm_transition.dart' as fsm_core;
@@ -137,7 +139,7 @@ abstract class BulletinBoardCardFiniteStateMachine
   BulletinBoardCardFiniteStateMachine()
       : super(fsm_core.DeferredInitializationFSMState());
 
-  void initialize();
+  void initialize(BulletinBoardCardID associatedCardID);
 
   void forceTransitToIdleState();
 
@@ -187,7 +189,7 @@ class BulletinBoardCardNonDeterministicFSM
   }
 
   @override
-  void initialize() {
+  void initialize(BulletinBoardCardID associatedCardID) {
     // Before going to the initial state we need to allocate all the states
     // for this card.
     _fsmStates = {

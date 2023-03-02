@@ -174,7 +174,6 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
   bbcard_fsm.BulletinBoardCardFiniteStateMachine? _cardFSM;
 
   BulletinBoardCardSafeSelectionController? _safeSelectionController;
-  OnCardDeleteEvent? _onCardDeleteEvent;
 
   @override
   void initState() {
@@ -182,10 +181,9 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     assert(widget.key != null);
     _bulletinBoardCardId = BulletinBoardCardKey.retrieveIDFromKey(widget.key!);
     _cardFSM = widget.cardFSM;
-    _cardFSM!.initialize();
+    _cardFSM!.initialize(_bulletinBoardCardId!);
 
     _safeSelectionController = widget.safeSelectionController;
-    _onCardDeleteEvent = widget.onCardDeleteEvent;
   }
 
   @override
