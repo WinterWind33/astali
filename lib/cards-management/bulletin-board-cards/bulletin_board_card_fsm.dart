@@ -4,7 +4,6 @@
 import 'package:astali/fsm/fsm_state.dart' as fsm_core;
 import 'package:astali/fsm/fsm_transition.dart' as fsm_core;
 import 'package:astali/fsm/finite_state_machine.dart' as fsm_core;
-import 'package:astali/scenes/finite-state-machines/bulletin_board_fsm.dart';
 
 // Core and engine
 import 'package:flutter/cupertino.dart';
@@ -77,6 +76,8 @@ class BulletinBoardCardIdleFSMState extends BulletinBoardCardFSMStateBase {
 
   @override
   void onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
+    super.onPointerDownOnCard(pointerDownEvent);
+
     // We need to go to the selected state, because the pointer is
     // down on this specified card.
     _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
@@ -92,10 +93,10 @@ class BulletinBoardCardSelectedFSMState extends BulletinBoardCardFSMStateBase {
 
   @override
   void onCardFocusChanged(bool bHasFocus) {
+    super.onCardFocusChanged(bHasFocus);
+
     // We should be here only when the card has focus because
     // when it loses the focus the card should be in editing state.
-    assert(bHasFocus);
-
     _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
         BulletinBoardCardFSMStateName.editing);
   }
@@ -109,7 +110,15 @@ class BulletinBoardCardEditingFSMState extends BulletinBoardCardFSMStateBase {
 
   @override
   void onCardFocusChanged(bool bHasFocus) {
-    assert(!bHasFocus);
+    super.onCardFocusChanged(bHasFocus);
+
+    _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+        BulletinBoardCardFSMStateName.selected);
+  }
+
+  @override
+  void onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
+    super.onPointerDownOnCard(pointerDownEvent);
 
     _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
         BulletinBoardCardFSMStateName.selected);
@@ -150,6 +159,10 @@ class BulletinBoardCardFSMUtils {
 
   static bool isInSelectedOrEditingState(BulletinBoardCardFSMType fsm) {
     return isInSelectedState(fsm) || isInEditingState(fsm);
+  }
+
+  static bool isInDeletingState(BulletinBoardCardFSMType fsm) {
+    return fsm.getCurrentStateName() == BulletinBoardCardFSMStateName.deleting;
   }
 }
 

@@ -107,7 +107,8 @@ class BulletinBoardCardSafeSelectionControllerImpl
 
     // To check if the state is new, we need to perform an XOR operation.
     // If the two states are equal, we don't have to update the state.
-    final bool bIsNewState = bIsAlreadySelected ^ bSelected;
+    final bool bIsNewState =
+        (!bIsStateLocked && bSelected) || bIsAlreadySelected ^ bSelected;
     return bIsNewState && !bIsStateLocked;
   }
 }
