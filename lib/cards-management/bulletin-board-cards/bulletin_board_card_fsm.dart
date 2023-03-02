@@ -48,10 +48,8 @@ class BulletinBoardCardFSMStateBase implements BulletinBoardCardFSMState {
 
   @override
   void onCardDeletionRequested() {
-    if (_stateName != BulletinBoardCardFSMStateName.deleting) {
-      _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
-          BulletinBoardCardFSMStateName.deleting);
-    }
+    _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+        BulletinBoardCardFSMStateName.deleting);
   }
 
   @override
@@ -157,6 +155,12 @@ class BulletinBoardCardDeletingFSMState extends BulletinBoardCardFSMStateBase {
     _cardsManager.deleteCard(_associatedCardID);
   }
 
+  @override
+  void onCardDeletionRequested() {
+    // We must stay in this state, we don't have to
+    // call the parent implementation.
+  }
+
   final bbcard_manager.BulletinBoardCardsManager _cardsManager;
 }
 
@@ -193,6 +197,9 @@ class BulletinBoardCardFSMUtils {
     return fsm.getCurrentStateName() == BulletinBoardCardFSMStateName.deleting;
   }
 }
+
+typedef BulletinBoardCardFSMStates
+    = Map<BulletinBoardCardFSMStateName, BulletinBoardCardFSMState>;
 
 class BulletinBoardCardNonDeterministicFSM
     extends BulletinBoardCardFiniteStateMachine
@@ -254,5 +261,5 @@ class BulletinBoardCardNonDeterministicFSM
 
   final bbcard_manager.BulletinBoardCardsManager _cardsManager;
 
-  Map<BulletinBoardCardFSMStateName, BulletinBoardCardFSMState> _fsmStates = {};
+  BulletinBoardCardFSMStates _fsmStates = {};
 }
