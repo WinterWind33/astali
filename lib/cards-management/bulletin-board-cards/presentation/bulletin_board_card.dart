@@ -4,8 +4,6 @@ import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart'
     as bbcard_fsm;
-import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_input.dart'
-    as bbcard_input;
 import 'package:astali/input-management/pointer_events.dart';
 
 // Core and engine
@@ -14,7 +12,6 @@ import 'dart:math';
 
 typedef OnCardFocusChanged = void Function(bool);
 typedef OnCardDeleteEventInternal = VoidCallback;
-typedef OnCardDeleteEvent = void Function(BulletinBoardCardID cardID);
 
 class BulletinBoardCardPresentation extends StatelessWidget {
   static const double cardWidth = 200.0;
@@ -154,14 +151,12 @@ class BulletinBoardCard extends StatefulWidget {
   const BulletinBoardCard(
       {required this.cardPosition,
       required this.safeSelectionController,
-      required this.onCardDeleteEvent,
       required this.cardFSM,
       super.key});
 
   final bbcard_fsm.BulletinBoardCardFiniteStateMachine cardFSM;
   final Point<double> cardPosition;
   final BulletinBoardCardSafeSelectionController safeSelectionController;
-  final OnCardDeleteEvent onCardDeleteEvent;
 
   @override
   State<BulletinBoardCard> createState() => _BulletinBoardCardState();

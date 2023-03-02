@@ -9,8 +9,6 @@ import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card
     as bbcard_fsm;
 
 // Input management
-import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_input.dart'
-    as bbcard_input;
 import 'package:astali/input-management/pointer_events.dart';
 
 // Core and engine
@@ -25,18 +23,15 @@ class BulletinBoardCardDataDiff {
   BulletinBoardCard applyCardDiff(BulletinBoardCard oldCard) {
     BulletinBoardCardSafeSelectionController oldSelectionController =
         oldCard.safeSelectionController;
-    OnCardDeleteEvent oldOnCardDeleteEvent = oldCard.onCardDeleteEvent;
     Key? oldKey = oldCard.key;
     bbcard_fsm.BulletinBoardCardFiniteStateMachine oldFSM = oldCard.cardFSM;
 
     if (newMousePoint != null) {
       return BulletinBoardCard(
-        key: oldKey,
-        cardFSM: oldFSM,
-        safeSelectionController: oldSelectionController,
-        cardPosition: newMousePoint!,
-        onCardDeleteEvent: oldOnCardDeleteEvent,
-      );
+          key: oldKey,
+          cardFSM: oldFSM,
+          safeSelectionController: oldSelectionController,
+          cardPosition: newMousePoint!);
     }
 
     return oldCard;

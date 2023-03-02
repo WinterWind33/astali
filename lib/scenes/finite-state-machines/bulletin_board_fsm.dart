@@ -4,8 +4,6 @@ import 'package:astali/cards-management/bulletin-board-cards/presentation/bullet
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_cards_manager.dart';
-import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_input.dart'
-    as bbcard_input;
 import 'package:astali/input-management/pointer_events.dart';
 
 // FSM
@@ -124,18 +122,6 @@ class BulletinBoardEmptyFSMState implements BulletinBoardFSMState {
     return _cardsManager!.getBulletinBoardCards();
   }
 
-  static void _onCardDeleteEvent(
-      BulletinBoardCardsManager cardsManager,
-      BulletinBoardCardSafeSelectionController selectionController,
-      BulletinBoardCardID cardID) {
-    // Firtly we need to remove the card from the current
-    // selection if it's selected.
-    selectionController.safeSetCardSelectionState(cardID, false);
-
-    // Next we can remove the card from the cards manager.
-    cardsManager.deleteCard(cardID);
-  }
-
   /// When transiting trhough one state to another we need to access
   /// shared data between states. This is a temporary solution to
   /// solve a bug where cards are spawned in old mouse positions during
@@ -231,14 +217,11 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
     final BulletinBoardCardKey cardKey = BulletinBoardCardKey(_spawningCardID!);
 
     _cardsManager!.addCard(BulletinBoardCard(
-        key: cardKey,
-        cardFSM:
-            bbcard_fsm.BulletinBoardCardNonDeterministicFSM(_cardsManager!),
-        safeSelectionController: _selectionController!,
-        cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition(),
-        onCardDeleteEvent: ((cardID) =>
-            BulletinBoardEmptyFSMState._onCardDeleteEvent(
-                _cardsManager!, _selectionController!, cardID))));
+      key: cardKey,
+      cardFSM: bbcard_fsm.BulletinBoardCardNonDeterministicFSM(_cardsManager!),
+      safeSelectionController: _selectionController!,
+      cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition(),
+    ));
   }
 
   @override
