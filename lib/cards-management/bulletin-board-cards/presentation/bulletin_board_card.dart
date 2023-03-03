@@ -1,7 +1,6 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
-import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart'
     as bbcard_fsm;
 import 'package:astali/input-management/pointer_events.dart';
