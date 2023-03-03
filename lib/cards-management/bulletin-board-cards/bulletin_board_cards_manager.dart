@@ -1,8 +1,6 @@
 // Copyright (c) 2023 Andrea Ballestrazzi
-import 'presentation/bulletin_board_card.dart';
-
-import 'bulletin_board_card_selection_controller.dart';
 import 'bulletin_board_card_id.dart';
+import 'presentation/bulletin_board_card.dart';
 
 // Bulletin board card FSM
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart'
@@ -21,17 +19,12 @@ class BulletinBoardCardDataDiff {
   MousePoint? newMousePoint;
 
   BulletinBoardCard applyCardDiff(BulletinBoardCard oldCard) {
-    BulletinBoardCardSafeSelectionController oldSelectionController =
-        oldCard.safeSelectionController;
     Key? oldKey = oldCard.key;
     bbcard_fsm.BulletinBoardCardFiniteStateMachine oldFSM = oldCard.cardFSM;
 
     if (newMousePoint != null) {
       return BulletinBoardCard(
-          key: oldKey,
-          cardFSM: oldFSM,
-          safeSelectionController: oldSelectionController,
-          cardPosition: newMousePoint!);
+          key: oldKey, cardFSM: oldFSM, cardPosition: newMousePoint!);
     }
 
     return oldCard;

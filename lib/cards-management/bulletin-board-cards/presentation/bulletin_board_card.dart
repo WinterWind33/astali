@@ -149,14 +149,10 @@ class BulletinBoardCardPresentation extends StatelessWidget {
 
 class BulletinBoardCard extends StatefulWidget {
   const BulletinBoardCard(
-      {required this.cardPosition,
-      required this.safeSelectionController,
-      required this.cardFSM,
-      super.key});
+      {required this.cardPosition, required this.cardFSM, super.key});
 
   final bbcard_fsm.BulletinBoardCardFiniteStateMachine cardFSM;
   final Point<double> cardPosition;
-  final BulletinBoardCardSafeSelectionController safeSelectionController;
 
   @override
   State<BulletinBoardCard> createState() => _BulletinBoardCardState();
@@ -166,8 +162,6 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
   BulletinBoardCardID? _bulletinBoardCardId;
   bbcard_fsm.BulletinBoardCardFiniteStateMachine? _cardFSM;
 
-  BulletinBoardCardSafeSelectionController? _safeSelectionController;
-
   @override
   void initState() {
     super.initState();
@@ -175,8 +169,6 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     _bulletinBoardCardId = BulletinBoardCardKey.retrieveIDFromKey(widget.key!);
     _cardFSM = widget.cardFSM;
     _cardFSM!.initialize(_bulletinBoardCardId!);
-
-    _safeSelectionController = widget.safeSelectionController;
   }
 
   @override
@@ -190,11 +182,12 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
 
   void _onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
     _getCurrentFSMState().onPointerDownOnCard(pointerDownEvent);
-    _onSelectionStateChanged(true);
   }
 
   void _onCardFocusChanged(final bool bHasFocus) {
-    _getCurrentFSMState().onCardFocusChanged(bHasFocus);
+    setState(() {
+      _getCurrentFSMState().onCardFocusChanged(bHasFocus);
+    });
   }
 
   void _onCardDeleteButtonEvent() {
@@ -209,14 +202,8 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
         onPointerDownEvent: _onPointerDownOnCard,
         onCardDeleteEventInternal: _onCardDeleteButtonEvent,
         bSelected:
-            bbcard_fsm.BulletinBoardCardFSMUtils.isInSelectedOrEditingState(
-                _cardFSM!),
+            bbcard_fsm.BulletinBoardCardFSMUtils.isInSelectedState(_cardFSM!),
         cardPosition: widget.cardPosition);
-  }
-
-  void _onSelectionStateChanged(final bool bSelected) {
-    _safeSelectionController!
-        .safeSetCardSelectionStateAndLock(_bulletinBoardCardId!, bSelected);
   }
 
   bbcard_fsm.BulletinBoardCardFSMState _getCurrentFSMState() {

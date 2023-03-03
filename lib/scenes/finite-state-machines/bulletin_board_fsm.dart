@@ -218,8 +218,8 @@ class BulletinBoardCreatingCardFSMState extends BulletinBoardEmptyFSMState {
 
     _cardsManager!.addCard(BulletinBoardCard(
       key: cardKey,
-      cardFSM: bbcard_fsm.BulletinBoardCardNonDeterministicFSM(_cardsManager!),
-      safeSelectionController: _selectionController!,
+      cardFSM: bbcard_fsm.BulletinBoardCardNonDeterministicFSM(
+          _cardsManager!, _selectionController!),
       cardPosition: BulletinBoardEmptyFSMState._getCurrentMousePosition(),
     ));
   }
@@ -332,11 +332,17 @@ class BulletinBoardDraggingCardFSMState extends BulletinBoardEmptyFSMState {
         BulletinBoardCardsManagerQuerist(_cardsManager!);
 
     for (var cardID in selectionSet) {
+      // If the card is in editing state then we don't need to move it.
+      final BulletinBoardCard currentCard = querist.getCard(cardID);
+      if (bbcard_fsm.BulletinBoardCardFSMUtils.isInEditingState(
+          currentCard.cardFSM)) {
+        continue;
+      }
+
       final MousePoint dragOffset =
           BulletinBoardEmptyFSMState._getCurrentMousePosition() -
               _lastMousePosition;
 
-      final BulletinBoardCard currentCard = querist.getCard(cardID);
       final MousePoint oldCardPosition = currentCard.cardPosition;
       final MousePoint newCardPosition = oldCardPosition + dragOffset;
 

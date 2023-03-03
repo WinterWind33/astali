@@ -2,6 +2,7 @@
 
 import 'bulletin_board_card_id.dart';
 import 'bulletin_board_cards_manager.dart' as bbcard_manager;
+import 'bulletin_board_card_selection_controller.dart' as bbcard_selection;
 
 // FSM
 import 'package:astali/fsm/fsm_state.dart' as fsm_core;
@@ -95,45 +96,123 @@ class BulletinBoardCardIdleFSMState extends BulletinBoardCardFSMStateBase {
 class BulletinBoardCardSelectedFSMState extends BulletinBoardCardFSMStateBase {
   const BulletinBoardCardSelectedFSMState(
       final BulletinBoardCardID associatedCardID,
+      final bbcard_selection.BulletinBoardCardSafeSelectionController
+          selectionController,
       final BulletinBoardCardFSMType ownerFSM,
       final BulletinBoardCardFSMStateResolverType stateResolver)
-      : super(associatedCardID, BulletinBoardCardFSMStateName.selected,
+      : _selectionController = selectionController,
+        super(associatedCardID, BulletinBoardCardFSMStateName.selected,
             ownerFSM, stateResolver);
 
   @override
-  void onCardFocusChanged(bool bHasFocus) {
-    super.onCardFocusChanged(bHasFocus);
+  void onStateEnter() {
+    super.onStateEnter();
 
-    // We should be here only when the card has focus because
-    // when it loses the focus the card should be in editing state.
-    _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
-        BulletinBoardCardFSMStateName.editing);
+    _setSelectionState(true);
   }
-}
 
-class BulletinBoardCardEditingFSMState extends BulletinBoardCardFSMStateBase {
-  const BulletinBoardCardEditingFSMState(
-      final BulletinBoardCardID associatedCardID,
-      final BulletinBoardCardFSMType ownerFSM,
-      final BulletinBoardCardFSMStateResolverType stateResolver)
-      : super(associatedCardID, BulletinBoardCardFSMStateName.editing, ownerFSM,
-            stateResolver);
+  @override
+  void onStateLeave() {
+    super.onStateLeave();
+
+    _setSelectionState(false);
+  }
 
   @override
   void onCardFocusChanged(bool bHasFocus) {
     super.onCardFocusChanged(bHasFocus);
 
-    _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
-        BulletinBoardCardFSMStateName.selected);
+    if (bHasFocus) {
+      // We should be here only when the card has focus because
+      // when it loses the focus the card should be in editing state.
+      _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+          BulletinBoardCardFSMStateName.editing);
+    }
+  }
+
+  @override
+  void onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
+    super.onPointerDownOnCard(pointerDownEvent);
+    _setSelectionState(true);
+  }
+
+  void _setSelectionState(final bool bSelected) {
+    if (bSelected) {
+      _selectionController.safeSetCardSelectionStateAndLock(
+          _associatedCardID, bSelected);
+    } else {
+      _selectionController.safeSetCardSelectionStateOrSinkLock(
+          _associatedCardID, bSelected);
+    }
+  }
+
+  final bbcard_selection.BulletinBoardCardSafeSelectionController
+      _selectionController;
+}
+
+class BulletinBoardCardEditingFSMState extends BulletinBoardCardFSMStateBase {
+  BulletinBoardCardEditingFSMState(
+      final BulletinBoardCardID associatedCardID,
+      final bbcard_selection.BulletinBoardCardSafeSelectionController
+          selectionController,
+      final BulletinBoardCardFSMType ownerFSM,
+      final BulletinBoardCardFSMStateResolverType stateResolver)
+      : _selectionController = selectionController,
+        super(associatedCardID, BulletinBoardCardFSMStateName.editing, ownerFSM,
+            stateResolver);
+
+  @override
+  void onStateEnter() {
+    super.onStateEnter();
+
+    // We don't want the card to be selected in editing mode, otherwise
+    // the user cannot select the text within it.
+    _selectionController.safeSetCardSelectionState(_associatedCardID, false);
+    assert(!bbcard_selection.BulletinBoardCardSelectionUtils.isCardSelected(
+        _associatedCardID, _selectionController));
+  }
+
+  @override
+  void onStateLeave() {
+    super.onStateLeave();
+    assert(!bbcard_selection.BulletinBoardCardSelectionUtils.isCardSelected(
+        _associatedCardID, _selectionController));
+
+    _bPointerDownOnCard = false;
+  }
+
+  @override
+  void onCardFocusChanged(bool bHasFocus) {
+    super.onCardFocusChanged(bHasFocus);
+
+    if (bHasFocus) {
+      // Stay in this state.
+      _bPointerDownOnCard = false;
+      return;
+    }
+
+    if (_bPointerDownOnCard) {
+      _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+          BulletinBoardCardFSMStateName.selected);
+    } else {
+      _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
+          BulletinBoardCardFSMStateName.idle);
+    }
+
+    _bPointerDownOnCard = false;
   }
 
   @override
   void onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
     super.onPointerDownOnCard(pointerDownEvent);
 
-    _ownerFSM.transit(fsm_core.FSMSimpleTransition(_stateResolver),
-        BulletinBoardCardFSMStateName.selected);
+    _bPointerDownOnCard = true;
   }
+
+  bool _bPointerDownOnCard = false;
+
+  final bbcard_selection.BulletinBoardCardSafeSelectionController
+      _selectionController;
 }
 
 class BulletinBoardCardDeletingFSMState extends BulletinBoardCardFSMStateBase {
@@ -205,8 +284,11 @@ class BulletinBoardCardNonDeterministicFSM
     extends BulletinBoardCardFiniteStateMachine
     implements BulletinBoardCardFSMStateResolverType {
   BulletinBoardCardNonDeterministicFSM(
-      final bbcard_manager.BulletinBoardCardsManager cardsManager)
+      final bbcard_manager.BulletinBoardCardsManager cardsManager,
+      final bbcard_selection.BulletinBoardCardSafeSelectionController
+          selectionController)
       : _cardsManager = cardsManager,
+        _selectionController = selectionController,
         super();
 
   @override
@@ -231,10 +313,10 @@ class BulletinBoardCardNonDeterministicFSM
     _fsmStates = {
       BulletinBoardCardFSMStateName.idle:
           BulletinBoardCardIdleFSMState(associatedCardID, this, this),
-      BulletinBoardCardFSMStateName.selected:
-          BulletinBoardCardSelectedFSMState(associatedCardID, this, this),
-      BulletinBoardCardFSMStateName.editing:
-          BulletinBoardCardEditingFSMState(associatedCardID, this, this),
+      BulletinBoardCardFSMStateName.selected: BulletinBoardCardSelectedFSMState(
+          associatedCardID, _selectionController, this, this),
+      BulletinBoardCardFSMStateName.editing: BulletinBoardCardEditingFSMState(
+          associatedCardID, _selectionController, this, this),
       BulletinBoardCardFSMStateName.deleting: BulletinBoardCardDeletingFSMState(
           _cardsManager, associatedCardID, this, this)
     };
@@ -260,6 +342,8 @@ class BulletinBoardCardNonDeterministicFSM
   }
 
   final bbcard_manager.BulletinBoardCardsManager _cardsManager;
+  final bbcard_selection.BulletinBoardCardSafeSelectionController
+      _selectionController;
 
   BulletinBoardCardFSMStates _fsmStates = {};
 }
