@@ -22,6 +22,7 @@ jobs:
 
       - name: Flutter Configure
         run: |
+          dart pub upgrade
           flutter pub get
           flutter config --enable-${{ matrix.os }}-desktop
 
