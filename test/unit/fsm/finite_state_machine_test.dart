@@ -8,7 +8,7 @@ import 'package:astali/fsm/fsm_state.dart';
 import 'package:astali/fsm/fsm_transition.dart';
 
 // Test doubles
-import 'finite_state_machine.tests.mocks.dart';
+import 'finite_state_machine_test.mocks.dart';
 
 // Test core and engine
 import 'package:flutter_test/flutter_test.dart';
