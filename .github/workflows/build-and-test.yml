@@ -17,6 +17,8 @@ jobs:
 
       - name: Flutter Configure
         run: |
+          flutter packages get
+          flutter upgrade
           flutter pub get
           flutter config --enable-windows-desktop
 
