@@ -27,4 +27,5 @@ jobs:
 
       - name: Tests run
         run:
+          flutter pub run build_runner build
           flutter test
