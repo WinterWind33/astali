@@ -200,4 +200,5 @@ fabric.properties
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,androidstudio
 
+# Generated test mocks
 *.mocks.dart
