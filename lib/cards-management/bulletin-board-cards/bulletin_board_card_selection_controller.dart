@@ -37,6 +37,11 @@ class BulletinBoardCardSelectionUtils {
       BulletinBoardCardSafeSelectionController selectionController) {
     return selectionController.getSelectedCardsIDs().contains(cardID);
   }
+
+  static void safeSinkLockAndPreserveState(final BulletinBoardCardID cardID,
+      BulletinBoardCardSafeSelectionController selectionController) {
+    selectionController.safeSetCardSelectionStateOrSinkLock(cardID, true);
+  }
 }
 
 class BulletinBoardCardSafeSelectionControllerImpl
@@ -63,7 +68,7 @@ class BulletinBoardCardSafeSelectionControllerImpl
   @override
   void safeSetCardSelectionStateOrSinkLock(
       BulletinBoardCardID cardID, bool bSelected) {
-    if (_canChangeState(cardID, bSelected)) {
+    if (_canChangeState(cardID, bSelected, false)) {
       _changeState(cardID, bSelected, false);
     } else {
       _sinkLockIfSelected(cardID);
@@ -72,7 +77,7 @@ class BulletinBoardCardSafeSelectionControllerImpl
 
   void _changeStateIfPossible(
       BulletinBoardCardID cardID, bool bSelected, final bool lockState) {
-    if (_canChangeState(cardID, bSelected)) {
+    if (_canChangeState(cardID, bSelected, lockState)) {
       _changeState(cardID, bSelected, lockState);
     }
   }
@@ -92,7 +97,8 @@ class BulletinBoardCardSafeSelectionControllerImpl
     }
   }
 
-  bool _canChangeState(BulletinBoardCardID cardID, bool bSelected) {
+  bool _canChangeState(
+      BulletinBoardCardID cardID, bool bSelected, bool bShouldLock) {
     // We need to check if the cardID is already selected,
     // and if we can set its new state. If the selection is locked we cannot
     // set the new state.
@@ -100,9 +106,16 @@ class BulletinBoardCardSafeSelectionControllerImpl
     final bool bIsStateLocked =
         bIsAlreadySelected && _selectionMap[cardID]!.isSelectionLocked();
 
+    // We can change state only if there isn't a lock to protect it.
+    final bool bNewSelectedState =
+        bIsAlreadySelected ^ bSelected && !bIsStateLocked;
+    // We can lock only the selected state.
+    final bool bNewLockState = !bIsStateLocked && bSelected && bShouldLock;
+
     // To check if the state is new, we need to perform an XOR operation.
-    // If the two states are equal, we don't have to update the state.
-    final bool bIsNewState = bIsAlreadySelected ^ bSelected;
-    return bIsNewState && !bIsStateLocked;
+    // If the two states are equal, we don't have to update the state but if
+    // the new state is selected == true but it isn't locked
+    final bool bCanChangeState = bNewSelectedState || bNewLockState;
+    return bCanChangeState;
   }
 }

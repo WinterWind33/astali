@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 typedef OnPointerHoverEvent = void Function(PointerHoverEvent);
 typedef OnPointerUpEvent = void Function(PointerUpEvent);
 typedef OnPointerDownEvent = void Function(PointerDownEvent);
+typedef OnPointerMoveEvent = void Function(PointerMoveEvent);
 
 typedef MouseButton = int;
 typedef MousePoint = Point<double>;

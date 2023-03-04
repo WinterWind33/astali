@@ -1,7 +1,8 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
-import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart'
+    as bbcard_fsm;
 import 'package:astali/input-management/pointer_events.dart';
 
 // Core and engine
@@ -10,7 +11,6 @@ import 'dart:math';
 
 typedef OnCardFocusChanged = void Function(bool);
 typedef OnCardDeleteEventInternal = VoidCallback;
-typedef OnCardDeleteEvent = void Function(BulletinBoardCardID cardID);
 
 class BulletinBoardCardPresentation extends StatelessWidget {
   static const double cardWidth = 200.0;
@@ -22,6 +22,7 @@ class BulletinBoardCardPresentation extends StatelessWidget {
       {required this.cardPosition,
       required this.onCardFocusChanged,
       required this.onPointerUpEvent,
+      required this.onPointerDownEvent,
       required this.onCardDeleteEventInternal,
       required this.bSelected,
       super.key});
@@ -29,6 +30,7 @@ class BulletinBoardCardPresentation extends StatelessWidget {
   final MousePoint cardPosition;
   final OnCardFocusChanged onCardFocusChanged;
   final OnPointerUpEvent onPointerUpEvent;
+  final OnPointerDownEvent onPointerDownEvent;
   final OnCardDeleteEventInternal onCardDeleteEventInternal;
   final bool bSelected;
 
@@ -119,6 +121,7 @@ class BulletinBoardCardPresentation extends StatelessWidget {
   Widget _createEventSensitiveArea(BuildContext context) {
     return Listener(
         onPointerUp: onPointerUpEvent,
+        onPointerDown: onPointerDownEvent,
         child: Focus(
             onFocusChange: (bHasFocus) {
               onCardFocusChanged(bHasFocus);
@@ -145,14 +148,10 @@ class BulletinBoardCardPresentation extends StatelessWidget {
 
 class BulletinBoardCard extends StatefulWidget {
   const BulletinBoardCard(
-      {required this.cardPosition,
-      required this.safeSelectionController,
-      required this.onCardDeleteEvent,
-      super.key});
+      {required this.cardPosition, required this.cardFSM, super.key});
 
+  final bbcard_fsm.BulletinBoardCardFiniteStateMachine cardFSM;
   final Point<double> cardPosition;
-  final BulletinBoardCardSafeSelectionController safeSelectionController;
-  final OnCardDeleteEvent onCardDeleteEvent;
 
   @override
   State<BulletinBoardCard> createState() => _BulletinBoardCardState();
@@ -160,17 +159,15 @@ class BulletinBoardCard extends StatefulWidget {
 
 class _BulletinBoardCardState extends State<BulletinBoardCard> {
   BulletinBoardCardID? _bulletinBoardCardId;
-  BulletinBoardCardSafeSelectionController? _safeSelectionController;
-  OnCardDeleteEvent? _onCardDeleteEvent;
+  bbcard_fsm.BulletinBoardCardFiniteStateMachine? _cardFSM;
 
   @override
   void initState() {
     super.initState();
     assert(widget.key != null);
     _bulletinBoardCardId = BulletinBoardCardKey.retrieveIDFromKey(widget.key!);
-
-    _safeSelectionController = widget.safeSelectionController;
-    _onCardDeleteEvent = widget.onCardDeleteEvent;
+    _cardFSM = widget.cardFSM;
+    _cardFSM!.initialize(_bulletinBoardCardId!);
   }
 
   @override
@@ -179,27 +176,21 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
   }
 
   void _onPointerUpOnCard(PointerUpEvent pointerUpEvent) {
-    setState(() {
-      _onSelectionStateChanged(true);
-    });
+    _getCurrentFSMState().onPointerUpOnCard(pointerUpEvent);
+  }
+
+  void _onPointerDownOnCard(PointerDownEvent pointerDownEvent) {
+    _getCurrentFSMState().onPointerDownOnCard(pointerDownEvent);
   }
 
   void _onCardFocusChanged(final bool bHasFocus) {
     setState(() {
-      _onSelectionStateChanged(bHasFocus);
+      _getCurrentFSMState().onCardFocusChanged(bHasFocus);
     });
   }
 
   void _onCardDeleteButtonEvent() {
-    assert(_onCardDeleteEvent != null);
-    assert(_bulletinBoardCardId != null);
-
-    // We need to unlock the selection state because the card is selected
-    // before this event is triggered, so it may happen that the selection
-    // state is locked.
-    _safeSelectionController!
-        .safeSetCardSelectionStateOrSinkLock(_bulletinBoardCardId!, false);
-    _onCardDeleteEvent!(_bulletinBoardCardId!);
+    _getCurrentFSMState().onCardDeletionRequested();
   }
 
   @override
@@ -207,14 +198,15 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     return BulletinBoardCardPresentation(
         onCardFocusChanged: _onCardFocusChanged,
         onPointerUpEvent: _onPointerUpOnCard,
+        onPointerDownEvent: _onPointerDownOnCard,
         onCardDeleteEventInternal: _onCardDeleteButtonEvent,
-        bSelected: BulletinBoardCardSelectionUtils.isCardSelected(
-            _bulletinBoardCardId!, _safeSelectionController!),
+        bSelected:
+            bbcard_fsm.BulletinBoardCardFSMUtils.isInSelectedState(_cardFSM!),
         cardPosition: widget.cardPosition);
   }
 
-  void _onSelectionStateChanged(final bool bSelected) {
-    _safeSelectionController!
-        .safeSetCardSelectionStateAndLock(_bulletinBoardCardId!, bSelected);
+  bbcard_fsm.BulletinBoardCardFSMState _getCurrentFSMState() {
+    assert(_cardFSM != null);
+    return _cardFSM!.getCurrentState();
   }
 }

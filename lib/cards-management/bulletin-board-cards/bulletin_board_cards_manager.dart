@@ -1,9 +1,12 @@
 // Copyright (c) 2023 Andrea Ballestrazzi
+import 'bulletin_board_card_id.dart';
 import 'presentation/bulletin_board_card.dart';
 
-import 'bulletin_board_card_selection_controller.dart';
-import 'bulletin_board_card_id.dart';
+// Bulletin board card FSM
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart'
+    as bbcard_fsm;
 
+// Input management
 import 'package:astali/input-management/pointer_events.dart';
 
 // Core and engine
@@ -16,18 +19,12 @@ class BulletinBoardCardDataDiff {
   MousePoint? newMousePoint;
 
   BulletinBoardCard applyCardDiff(BulletinBoardCard oldCard) {
-    BulletinBoardCardSafeSelectionController oldSelectionController =
-        oldCard.safeSelectionController;
-    OnCardDeleteEvent oldOnCardDeleteEvent = oldCard.onCardDeleteEvent;
     Key? oldKey = oldCard.key;
+    bbcard_fsm.BulletinBoardCardFiniteStateMachine oldFSM = oldCard.cardFSM;
 
     if (newMousePoint != null) {
       return BulletinBoardCard(
-        key: oldKey,
-        safeSelectionController: oldSelectionController,
-        cardPosition: newMousePoint!,
-        onCardDeleteEvent: oldOnCardDeleteEvent,
-      );
+          key: oldKey, cardFSM: oldFSM, cardPosition: newMousePoint!);
     }
 
     return oldCard;
@@ -59,6 +56,11 @@ class BulletinBoardCardsManagerQuerist {
 
   bool containsCard(final BulletinBoardCardID cardID) {
     return _cardsManager.getBulletinBoardCards().containsKey(cardID);
+  }
+
+  BulletinBoardCard getCard(final BulletinBoardCardID cardID) {
+    assert(containsCard(cardID));
+    return _cardsManager.getBulletinBoardCards()[cardID]!;
   }
 
   final BulletinBoardCardsManager _cardsManager;
