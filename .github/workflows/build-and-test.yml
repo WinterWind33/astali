@@ -16,7 +16,9 @@ jobs:
           channel: 'beta'
 
       - name: Flutter Configure
-        run: flutter config --enable-windows-desktop
+        run: |
+          flutter pub get
+          flutter config --enable-windows-desktop
 
       - name: Astali build
         run: flutter build windows
