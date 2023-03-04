@@ -321,7 +321,10 @@ class BulletinBoardCardNonDeterministicFSM
           _cardsManager, associatedCardID, this, this)
     };
 
-    _transitToIdleState();
+    transit(
+        fsm_core.FSMTransitionToInitialState<BulletinBoardCardFSMStateName>(
+            this),
+        BulletinBoardCardFSMStateName.idle);
   }
 
   @override
