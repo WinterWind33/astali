@@ -26,7 +26,6 @@ void main() {
     test("Should correctly leave the initial state when transitioning", () {
       var initialStateMock = MockFSMState();
       var finalStateMock = MockFSMState();
-
       var stateResolverMock = MockFSMStateResolver();
 
       when(stateResolverMock.getState(dummyFinalStateName))
@@ -42,7 +41,6 @@ void main() {
     test("Should correctly enter the final state when transitioning", () {
       var initialStateMock = MockFSMState();
       var finalStateMock = MockFSMState();
-
       var stateResolverMock = MockFSMStateResolver();
 
       when(stateResolverMock.getState(dummyFinalStateName))
@@ -52,6 +50,56 @@ void main() {
           FSMSimpleTransition(stateResolverMock);
 
       transitionUnderTest.execute(initialStateMock, dummyFinalStateName);
+      verify(finalStateMock.onStateEnter()).called(1);
+    });
+
+    test("execute() method Should correctly return the final state", () {
+      var initialStateMock = MockFSMState();
+      var finalStateMock = MockFSMState();
+      var stateResolverMock = MockFSMStateResolver();
+
+      when(stateResolverMock.getState(dummyFinalStateName))
+          .thenReturn(finalStateMock);
+
+      FSMSimpleTransition<DummySymbolType> transitionUnderTest =
+          FSMSimpleTransition(stateResolverMock);
+
+      FSMState<DummySymbolType> result =
+          transitionUnderTest.execute(initialStateMock, dummyFinalStateName);
+      expect(result, finalStateMock);
+    });
+  });
+
+  group("FSMTransitionToInitialState", () {
+    test("Shouldn't leave the starting state when transitioning", () {
+      var initialStateMock = MockFSMState();
+      var finalStateMock = MockFSMState();
+      var stateResolverMock = MockFSMStateResolver();
+
+      when(stateResolverMock.getState(dummyFinalStateName))
+          .thenReturn(finalStateMock);
+
+      FSMTransitionToInitialState transitionUnderTest =
+          FSMTransitionToInitialState(stateResolverMock);
+
+      transitionUnderTest.execute(initialStateMock, dummyFinalStateName);
+
+      verifyNever(initialStateMock.onStateLeave());
+    });
+
+    test("Should only enter the final state when transitioning", () {
+      var initialStateMock = MockFSMState();
+      var finalStateMock = MockFSMState();
+      var stateResolverMock = MockFSMStateResolver();
+
+      when(stateResolverMock.getState(dummyFinalStateName))
+          .thenReturn(finalStateMock);
+
+      FSMTransitionToInitialState transitionUnderTest =
+          FSMTransitionToInitialState(stateResolverMock);
+
+      transitionUnderTest.execute(initialStateMock, dummyFinalStateName);
+
       verify(finalStateMock.onStateEnter()).called(1);
     });
   });
