@@ -1,17 +1,18 @@
 // Copyright (c) 2023 Andrea Ballestrazzi
 
 // System under test
-import 'package:astali/fsm/fsm_state.dart';
 import 'package:astali/fsm/fsm_transition.dart';
 
+// SUT Dependencies
+import 'package:astali/fsm/fsm_state.dart';
+
 // Test doubles
+import 'fsm_transition.tests.mocks.dart';
 
 // Tests core and engine
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
-
-import 'fsm_transition.tests.mocks.dart';
 
 typedef DummySymbolType = int;
 const DummySymbolType dummyInitialStateName = 0;
