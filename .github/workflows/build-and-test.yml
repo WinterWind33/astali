@@ -27,6 +27,6 @@ jobs:
 
       - name: Unit tests run
         run: |
-          ls -l
+          dir
           flutter pub run build_runner build
           flutter test test/unit/**/*.tests.dart
