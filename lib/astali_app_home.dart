@@ -10,21 +10,21 @@ import 'settings/astali_about_dialog.dart';
 import 'package:flutter/material.dart';
 
 typedef OnAboutItemClicked = VoidCallback;
+typedef OnSaveBoardClicked = VoidCallback;
 
 /// Represents a set of callbacks used inside the presentation
 /// of the astali app home.
 class ScenesCommonCallbacks {
-  const ScenesCommonCallbacks({
-    required this.onAboutButtonClicked});
+  const ScenesCommonCallbacks(
+      {required this.onAboutButtonClicked, required this.onSaveBoardClicked});
 
   // When the 'About' button is clicked inside the settings menu.
   final OnAboutItemClicked onAboutButtonClicked;
+  final OnSaveBoardClicked onSaveBoardClicked;
 }
 
 class AstaliAppHomePresentation extends StatelessWidget {
-  const AstaliAppHomePresentation({
-    required this.commonCallbacks,
-    super.key});
+  const AstaliAppHomePresentation({required this.commonCallbacks, super.key});
 
   final ScenesCommonCallbacks commonCallbacks;
 
@@ -42,15 +42,17 @@ class AstaliAppHomePresentation extends StatelessWidget {
               case "About":
                 commonCallbacks.onAboutButtonClicked();
                 break;
+              case "SaveBoard":
+                commonCallbacks.onSaveBoardClicked();
+                break;
               default:
             }
           },
           itemBuilder: (context) {
             return [
               const PopupMenuItem<String>(
-                value: "About",
-                child: Text("About")
-              )
+                  value: "SaveBoard", child: Text("Save Board")),
+              const PopupMenuItem<String>(value: "About", child: Text("About")),
             ];
           },
         )
@@ -65,7 +67,6 @@ class AstaliAppHomePresentation extends StatelessWidget {
       body: const BulletinBoardScene(),
     );
   }
-
 }
 
 /// Represents the home UI widget.
@@ -83,17 +84,18 @@ class AstaliAppHome extends StatefulWidget {
 ///
 /// Builds up the main user interface.
 class _AstaliAppHomeState extends State<AstaliAppHome> {
-
   @override
   Widget build(BuildContext context) {
     return AstaliAppHomePresentation(
       commonCallbacks: ScenesCommonCallbacks(
-        onAboutButtonClicked: _onAboutItemClicked
-      ),
+          onAboutButtonClicked: _onAboutItemClicked,
+          onSaveBoardClicked: _onSaveBoardClicked),
     );
   }
 
   void _onAboutItemClicked() {
     showAstaliAboutDialog(context);
   }
+
+  void _onSaveBoardClicked() {}
 }
