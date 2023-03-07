@@ -24,8 +24,12 @@ class ScenesCommonCallbacks {
 }
 
 class AstaliAppHomePresentation extends StatelessWidget {
-  const AstaliAppHomePresentation({required this.commonCallbacks, super.key});
+  const AstaliAppHomePresentation(
+      {required this.commonCallbacks,
+      required this.bulletinBoardScene,
+      super.key});
 
+  final BulletinBoardScene bulletinBoardScene;
   final ScenesCommonCallbacks commonCallbacks;
 
   /// Creates the body of the main user interface.
@@ -64,7 +68,7 @@ class AstaliAppHomePresentation extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: _createSceneTopBar(),
-      body: const BulletinBoardScene(),
+      body: bulletinBoardScene,
     );
   }
 }
@@ -84,9 +88,12 @@ class AstaliAppHome extends StatefulWidget {
 ///
 /// Builds up the main user interface.
 class _AstaliAppHomeState extends State<AstaliAppHome> {
+  final BulletinBoardScene _bulletinBoardScene = const BulletinBoardScene();
+
   @override
   Widget build(BuildContext context) {
     return AstaliAppHomePresentation(
+      bulletinBoardScene: _bulletinBoardScene,
       commonCallbacks: ScenesCommonCallbacks(
           onAboutButtonClicked: _onAboutItemClicked,
           onSaveBoardClicked: _onSaveBoardClicked),
