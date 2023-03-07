@@ -81,7 +81,10 @@ typedef OnBulletinBoardCardManagerDeleteCardEvent = void Function(
     BulletinBoardCardID);
 
 class BulletinBoardScene extends StatefulWidget {
-  const BulletinBoardScene({super.key});
+  const BulletinBoardScene(
+      {required this.bulletinBoardCardsManager, super.key});
+
+  final BulletinBoardCardsManager bulletinBoardCardsManager;
 
   @override
   State<BulletinBoardScene> createState() => _BulletinBoardState();
@@ -112,11 +115,9 @@ class BulletinBoardCardsManagerDelegator
 
 class _BulletinBoardState extends State<BulletinBoardScene> {
   /// Managers
-
   final BulletinBoardCardIDGenerator _bulletinBoardCardsIDsGenerator =
       BulletinBoardCardIDSimpleGenerator();
-  final BulletinBoardCardsManager _bulletinBoardCardsManager =
-      BulletinBoardCardsManagerImpl();
+  BulletinBoardCardsManager? _bulletinBoardCardsManager;
   final BulletinBoardCardSafeSelectionController _safeSelectionController =
       BulletinBoardCardSafeSelectionControllerImpl();
 
@@ -128,7 +129,9 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   void initState() {
     super.initState();
 
-    _bulletinBoardCardsManager.registerEventListener(
+    _bulletinBoardCardsManager = widget.bulletinBoardCardsManager;
+
+    _bulletinBoardCardsManager!.registerEventListener(
         BulletinBoardCardsManagerDelegator(
             onDeleteDelegate: _onCardDeletedEvent));
 
@@ -141,7 +144,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
         onPointerDownEvent: _onPointerDown,
         onPointerMoveEvent: _onPointerMove);
 
-    _bulletinBoardFSM!.initialize(_bulletinBoardCardsManager);
+    _bulletinBoardFSM!.initialize(_bulletinBoardCardsManager!);
     _fsmEventHandler = BulletinBoardFSMEventDispatcher(_bulletinBoardFSM!);
   }
 
@@ -157,7 +160,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     return BulletinBoardScenePresentation(
         pointerEvents: _pointerEvents!,
         onCardAddEvent: _onCardAddEvent,
-        cardsToRender: _bulletinBoardCardsManager.getBulletinBoardCards());
+        cardsToRender: _bulletinBoardCardsManager!.getBulletinBoardCards());
   }
 
   void _onCardAddEvent() {

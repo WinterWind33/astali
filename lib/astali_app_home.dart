@@ -2,6 +2,7 @@
 
 // Scenes
 import 'scenes/bulletin_board_scene.dart';
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_cards_manager.dart';
 
 // Settings
 import 'settings/astali_about_dialog.dart';
@@ -88,12 +89,22 @@ class AstaliAppHome extends StatefulWidget {
 ///
 /// Builds up the main user interface.
 class _AstaliAppHomeState extends State<AstaliAppHome> {
-  final BulletinBoardScene _bulletinBoardScene = const BulletinBoardScene();
+  final BulletinBoardCardsManager _cardsManager =
+      BulletinBoardCardsManagerImpl();
+  BulletinBoardScene? _bulletinBoardScene;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _bulletinBoardScene =
+        BulletinBoardScene(bulletinBoardCardsManager: _cardsManager);
+  }
 
   @override
   Widget build(BuildContext context) {
     return AstaliAppHomePresentation(
-      bulletinBoardScene: _bulletinBoardScene,
+      bulletinBoardScene: _bulletinBoardScene!,
       commonCallbacks: ScenesCommonCallbacks(
           onAboutButtonClicked: _onAboutItemClicked,
           onSaveBoardClicked: _onSaveBoardClicked),
@@ -104,5 +115,9 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     showAstaliAboutDialog(context);
   }
 
-  void _onSaveBoardClicked() {}
+  void _onSaveBoardClicked() {
+    _serializeBulletinBoardJsonProject("defaultProject");
+  }
+
+  void _serializeBulletinBoardJsonProject(final String projectName) {}
 }
