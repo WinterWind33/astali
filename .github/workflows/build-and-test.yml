@@ -28,5 +28,5 @@ jobs:
           flutter build windows
 
       - name: Tests run
-        run:
+        run: |
           flutter test

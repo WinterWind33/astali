@@ -1,6 +1,8 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 // Scenes
+import 'package:astali/cards-management/bulletin-board-cards/serialization/bulletin_board_card_data.dart';
+
 import 'scenes/bulletin_board_scene.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_cards_manager.dart';
 
@@ -119,5 +121,14 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     _serializeBulletinBoardJsonProject("defaultProject");
   }
 
-  void _serializeBulletinBoardJsonProject(final String projectName) {}
+  void _serializeBulletinBoardJsonProject(final String projectName) {
+    var bulletinBoardCards = _cardsManager.getBulletinBoardCards();
+
+    for (var card in bulletinBoardCards.values) {
+      BulletinBoardCardData cardData =
+          BulletinBoardCardData(cardPosition: card.cardPosition);
+
+      print(cardData.toJson());
+    }
+  }
 }
