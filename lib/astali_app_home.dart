@@ -1,7 +1,9 @@
 // Copyright (C) 2023 Andrea Ballestrazzi
 
 // Scenes
+
 import 'package:astali/cards-management/bulletin-board-cards/serialization/bulletin_board_card_data.dart';
+import 'package:flutter/gestures.dart';
 
 import 'scenes/bulletin_board_scene.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_cards_manager.dart';
@@ -11,6 +13,8 @@ import 'settings/astali_about_dialog.dart';
 
 // Core and engine
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'dart:convert';
 
 typedef OnAboutItemClicked = VoidCallback;
 typedef OnSaveBoardClicked = VoidCallback;
@@ -124,11 +128,28 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
   void _serializeBulletinBoardJsonProject(final String projectName) {
     var bulletinBoardCards = _cardsManager.getBulletinBoardCards();
 
+    Map<String, dynamic> jsonData = {};
+    List<Map<String, dynamic>> cardsListJson =
+        List<Map<String, dynamic>>.empty(growable: true);
     for (var card in bulletinBoardCards.values) {
       BulletinBoardCardData cardData =
           BulletinBoardCardData(cardPosition: card.cardPosition);
 
-      print(cardData.toJson());
+      cardsListJson.add(cardData.toJson());
     }
+
+    jsonData.putIfAbsent("cards", () => cardsListJson);
+
+    serializeProject(jsonData);
+  }
+
+  Future<File> serializeProject(Map<String, dynamic> projectData) async {
+    final projectFile = await _projectFile;
+
+    return projectFile.writeAsString(json.encode(projectData));
+  }
+
+  Future<File> get _projectFile async {
+    return File("defaultProject.json");
   }
 }
