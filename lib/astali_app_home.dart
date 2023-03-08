@@ -108,6 +108,13 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
   }
 
   @override
+  void dispose() {
+    // We need to save the project.
+    _serializeBulletinBoardJsonProject("defaultProject");
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AstaliAppHomePresentation(
       bulletinBoardScene: _bulletinBoardScene!,
@@ -128,7 +135,7 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
   void _serializeBulletinBoardJsonProject(final String projectName) {
     var bulletinBoardCards = _cardsManager.getBulletinBoardCards();
 
-    Map<String, dynamic> jsonData = {};
+    Map<String, dynamic> jsonData = {"title": projectName};
     List<Map<String, dynamic>> cardsListJson =
         List<Map<String, dynamic>>.empty(growable: true);
     for (var card in bulletinBoardCards.values) {
