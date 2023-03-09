@@ -2,9 +2,13 @@
 
 // Scenes
 
+import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart';
+import 'package:astali/cards-management/bulletin-board-cards/presentation/bulletin_board_card.dart';
 import 'package:astali/cards-management/bulletin-board-cards/serialization/bulletin_board_card_data.dart';
 import 'package:flutter/gestures.dart';
 
+import 'cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
+import 'cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
 import 'scenes/bulletin_board_scene.dart';
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_cards_manager.dart';
 
@@ -95,16 +99,19 @@ class AstaliAppHome extends StatefulWidget {
 ///
 /// Builds up the main user interface.
 class _AstaliAppHomeState extends State<AstaliAppHome> {
+  final BulletinBoardCardIDGenerator _bulletinBoardCardsIDsGenerator =
+      BulletinBoardCardIDSimpleGenerator();
   final BulletinBoardCardsManager _cardsManager =
       BulletinBoardCardsManagerImpl();
-  BulletinBoardScene? _bulletinBoardScene;
+  final BulletinBoardCardSafeSelectionController _safeSelectionController =
+      BulletinBoardCardSafeSelectionControllerImpl();
 
   @override
   void initState() {
     super.initState();
-
-    _bulletinBoardScene =
-        BulletinBoardScene(bulletinBoardCardsManager: _cardsManager);
+    _loadBulletinBoardJsonProject("defaultProject.json").then((value) {
+      setState(() {});
+    });
   }
 
   @override
@@ -117,7 +124,11 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
   @override
   Widget build(BuildContext context) {
     return AstaliAppHomePresentation(
-      bulletinBoardScene: _bulletinBoardScene!,
+      bulletinBoardScene: BulletinBoardScene(
+        bulletinBoardCardsManager: _cardsManager,
+        cardsIDGenerator: _bulletinBoardCardsIDsGenerator,
+        safeSelectionController: _safeSelectionController,
+      ),
       commonCallbacks: ScenesCommonCallbacks(
           onAboutButtonClicked: _onAboutItemClicked,
           onSaveBoardClicked: _onSaveBoardClicked),
@@ -130,6 +141,33 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
 
   void _onSaveBoardClicked() {
     _serializeBulletinBoardJsonProject("defaultProject");
+  }
+
+  Future<void> _loadBulletinBoardJsonProject(
+      final String projectFileName) async {
+    try {
+      final file = await _projectFile;
+
+      final contents = await file.readAsString();
+
+      Map<String, dynamic> projectData = json.decode(contents);
+      List<dynamic> cardsData = projectData["cards"];
+
+      for (var rawCardData in cardsData) {
+        BulletinBoardCardData cardData =
+            BulletinBoardCardData.fromJson(rawCardData);
+
+        var cardID = _bulletinBoardCardsIDsGenerator.generateID();
+        final BulletinBoardCardKey cardKey = BulletinBoardCardKey(cardID);
+        _cardsManager.addCard(BulletinBoardCard(
+            key: cardKey,
+            cardPosition: cardData.cardPosition,
+            cardFSM: BulletinBoardCardNonDeterministicFSM(
+                _cardsManager, _safeSelectionController)));
+      }
+    } catch (e) {
+      print(e);
+    }
   }
 
   void _serializeBulletinBoardJsonProject(final String projectName) {
