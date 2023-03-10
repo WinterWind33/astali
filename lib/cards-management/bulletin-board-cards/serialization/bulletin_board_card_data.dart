@@ -21,7 +21,10 @@ MousePoint mousePointFromJson(final String jsonStr) {
 
 @JsonSerializable()
 class BulletinBoardCardData {
-  BulletinBoardCardData({required this.cardPosition});
+  BulletinBoardCardData(
+      {required this.cardPosition,
+      this.cardTitle = "",
+      this.cardDescription = ""});
 
   factory BulletinBoardCardData.fromJson(Map<String, dynamic> json) =>
       _$BulletinBoardCardDataFromJson(json);
@@ -33,4 +36,10 @@ class BulletinBoardCardData {
       toJson: mousePointToJson,
       fromJson: mousePointFromJson)
   final MousePoint cardPosition;
+
+  @JsonKey(name: "title")
+  final String cardTitle;
+
+  @JsonKey(name: "description")
+  final String cardDescription;
 }
