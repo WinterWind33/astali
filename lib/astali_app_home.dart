@@ -5,7 +5,6 @@
 import 'package:astali/cards-management/bulletin-board-cards/bulletin_board_card_fsm.dart';
 import 'package:astali/cards-management/bulletin-board-cards/presentation/bulletin_board_card.dart';
 import 'package:astali/cards-management/bulletin-board-cards/serialization/bulletin_board_card_data.dart';
-import 'package:flutter/gestures.dart';
 
 import 'cards-management/bulletin-board-cards/bulletin_board_card_id.dart';
 import 'cards-management/bulletin-board-cards/bulletin_board_card_selection_controller.dart';
