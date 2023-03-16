@@ -202,3 +202,6 @@ fabric.properties
 
 # Generated test mocks
 *.mocks.dart
+
+# Generated files from generators
+*.g.dart

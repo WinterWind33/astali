@@ -23,6 +23,8 @@ abstract class BulletinBoardCardFSMState extends BulletinBaordCardFSMStateType {
   void onPointerDownOnCard(PointerDownEvent pointerDownEvent);
   void onCardFocusChanged(bool bHasFocus);
   void onCardDeletionRequested();
+  void onCardTitleChanged(String text);
+  void onCardDescriptionChanged(String text);
 }
 
 typedef BulletinBoardCardFSMType
@@ -72,6 +74,16 @@ class BulletinBoardCardFSMStateBase implements BulletinBoardCardFSMState {
   final BulletinBoardCardFSMStateName _stateName;
   final BulletinBoardCardFSMType _ownerFSM;
   final BulletinBoardCardFSMStateResolverType _stateResolver;
+
+  @override
+  void onCardDescriptionChanged(String text) {
+    assert(false);
+  }
+
+  @override
+  void onCardTitleChanged(String text) {
+    assert(false);
+  }
 }
 
 class BulletinBoardCardIdleFSMState extends BulletinBoardCardFSMStateBase {
@@ -156,8 +168,10 @@ class BulletinBoardCardEditingFSMState extends BulletinBoardCardFSMStateBase {
       final bbcard_selection.BulletinBoardCardSafeSelectionController
           selectionController,
       final BulletinBoardCardFSMType ownerFSM,
-      final BulletinBoardCardFSMStateResolverType stateResolver)
+      final BulletinBoardCardFSMStateResolverType stateResolver,
+      final bbcard_manager.BulletinBoardCardsManager manager)
       : _selectionController = selectionController,
+        _cardsManager = manager,
         super(associatedCardID, BulletinBoardCardFSMStateName.editing, ownerFSM,
             stateResolver);
 
@@ -179,6 +193,18 @@ class BulletinBoardCardEditingFSMState extends BulletinBoardCardFSMStateBase {
         _associatedCardID, _selectionController));
 
     _bPointerDownOnCard = false;
+  }
+
+  @override
+  void onCardTitleChanged(String text) {
+    _cardsManager.updateCard(_associatedCardID,
+        bbcard_manager.BulletinBoardCardDataDiff(newTitle: text));
+  }
+
+  @override
+  void onCardDescriptionChanged(String text) {
+    _cardsManager.updateCard(_associatedCardID,
+        bbcard_manager.BulletinBoardCardDataDiff(newDescription: text));
   }
 
   @override
@@ -213,6 +239,8 @@ class BulletinBoardCardEditingFSMState extends BulletinBoardCardFSMStateBase {
 
   final bbcard_selection.BulletinBoardCardSafeSelectionController
       _selectionController;
+
+  final bbcard_manager.BulletinBoardCardsManager _cardsManager;
 }
 
 class BulletinBoardCardDeletingFSMState extends BulletinBoardCardFSMStateBase {
@@ -316,7 +344,7 @@ class BulletinBoardCardNonDeterministicFSM
       BulletinBoardCardFSMStateName.selected: BulletinBoardCardSelectedFSMState(
           associatedCardID, _selectionController, this, this),
       BulletinBoardCardFSMStateName.editing: BulletinBoardCardEditingFSMState(
-          associatedCardID, _selectionController, this, this),
+          associatedCardID, _selectionController, this, this, _cardsManager),
       BulletinBoardCardFSMStateName.deleting: BulletinBoardCardDeletingFSMState(
           _cardsManager, associatedCardID, this, this)
     };

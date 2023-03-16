@@ -21,11 +21,12 @@ jobs:
           flutter upgrade
           flutter pub get
           flutter config --enable-windows-desktop
+          flutter pub run build_runner build --delete-conflicting-outputs
 
       - name: Astali build
-        run: flutter build windows
+        run: |
+          flutter build windows
 
       - name: Tests run
-        run:
-          flutter pub run build_runner build
+        run: |
           flutter test

@@ -81,7 +81,15 @@ typedef OnBulletinBoardCardManagerDeleteCardEvent = void Function(
     BulletinBoardCardID);
 
 class BulletinBoardScene extends StatefulWidget {
-  const BulletinBoardScene({super.key});
+  const BulletinBoardScene(
+      {required this.bulletinBoardCardsManager,
+      required this.cardsIDGenerator,
+      required this.safeSelectionController,
+      super.key});
+
+  final BulletinBoardCardsManager bulletinBoardCardsManager;
+  final BulletinBoardCardSafeSelectionController safeSelectionController;
+  final BulletinBoardCardIDGenerator cardsIDGenerator;
 
   @override
   State<BulletinBoardScene> createState() => _BulletinBoardState();
@@ -112,13 +120,9 @@ class BulletinBoardCardsManagerDelegator
 
 class _BulletinBoardState extends State<BulletinBoardScene> {
   /// Managers
-
-  final BulletinBoardCardIDGenerator _bulletinBoardCardsIDsGenerator =
-      BulletinBoardCardIDSimpleGenerator();
-  final BulletinBoardCardsManager _bulletinBoardCardsManager =
-      BulletinBoardCardsManagerImpl();
-  final BulletinBoardCardSafeSelectionController _safeSelectionController =
-      BulletinBoardCardSafeSelectionControllerImpl();
+  BulletinBoardCardIDGenerator? _bulletinBoardCardsIDsGenerator;
+  BulletinBoardCardsManager? _bulletinBoardCardsManager;
+  BulletinBoardCardSafeSelectionController? _safeSelectionController;
 
   BulletinBoardNonDeterministicFSM? _bulletinBoardFSM;
   BulletinBoardFSMEventDispatcher? _fsmEventHandler;
@@ -128,12 +132,16 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   void initState() {
     super.initState();
 
-    _bulletinBoardCardsManager.registerEventListener(
+    _bulletinBoardCardsManager = widget.bulletinBoardCardsManager;
+    _bulletinBoardCardsIDsGenerator = widget.cardsIDGenerator;
+    _safeSelectionController = widget.safeSelectionController;
+
+    _bulletinBoardCardsManager!.registerEventListener(
         BulletinBoardCardsManagerDelegator(
             onDeleteDelegate: _onCardDeletedEvent));
 
     _bulletinBoardFSM = BulletinBoardNonDeterministicFSM(
-        _bulletinBoardCardsIDsGenerator, _safeSelectionController);
+        _bulletinBoardCardsIDsGenerator!, _safeSelectionController!);
 
     _pointerEvents = BulletinBoardScenePointerEvents(
         onPointerHoverEvent: _onMouseHover,
@@ -141,7 +149,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
         onPointerDownEvent: _onPointerDown,
         onPointerMoveEvent: _onPointerMove);
 
-    _bulletinBoardFSM!.initialize(_bulletinBoardCardsManager);
+    _bulletinBoardFSM!.initialize(_bulletinBoardCardsManager!);
     _fsmEventHandler = BulletinBoardFSMEventDispatcher(_bulletinBoardFSM!);
   }
 
@@ -157,7 +165,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
     return BulletinBoardScenePresentation(
         pointerEvents: _pointerEvents!,
         onCardAddEvent: _onCardAddEvent,
-        cardsToRender: _bulletinBoardCardsManager.getBulletinBoardCards());
+        cardsToRender: _bulletinBoardCardsManager!.getBulletinBoardCards());
   }
 
   void _onCardAddEvent() {
@@ -169,7 +177,7 @@ class _BulletinBoardState extends State<BulletinBoardScene> {
   void _onCardDeletedEvent(BulletinBoardCardID cardID) {
     // If the card was in the selection list we need to delete
     // it from the list.
-    _safeSelectionController.safeSetCardSelectionState(cardID, false);
+    _safeSelectionController!.safeSetCardSelectionState(cardID, false);
     setState(() {});
   }
 

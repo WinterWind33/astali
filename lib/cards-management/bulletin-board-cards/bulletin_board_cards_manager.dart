@@ -15,19 +15,45 @@ import 'package:flutter/material.dart';
 typedef BulletinBoardCards = Map<BulletinBoardCardID, BulletinBoardCard>;
 
 class BulletinBoardCardDataDiff {
-  BulletinBoardCardDataDiff({this.newMousePoint});
+  BulletinBoardCardDataDiff(
+      {this.newMousePoint, this.newTitle, this.newDescription});
   MousePoint? newMousePoint;
+  String? newTitle;
+  String? newDescription;
 
   BulletinBoardCard applyCardDiff(BulletinBoardCard oldCard) {
-    Key? oldKey = oldCard.key;
-    bbcard_fsm.BulletinBoardCardFiniteStateMachine oldFSM = oldCard.cardFSM;
-
-    if (newMousePoint != null) {
-      return BulletinBoardCard(
-          key: oldKey, cardFSM: oldFSM, cardPosition: newMousePoint!);
+    if (!_isDiffNotZero()) {
+      return oldCard;
     }
 
-    return oldCard;
+    Key? oldKey = oldCard.key;
+    bbcard_fsm.BulletinBoardCardFiniteStateMachine oldFSM = oldCard.cardFSM;
+    String titleToUpdate = oldCard.initialTitle;
+    String descriptionToUpdate = oldCard.initialDescription;
+    MousePoint newPosition = oldCard.cardPosition;
+
+    if (newTitle != null) {
+      titleToUpdate = newTitle!;
+    }
+
+    if (newDescription != null) {
+      descriptionToUpdate = newDescription!;
+    }
+
+    if (newMousePoint != null) {
+      newPosition = newMousePoint!;
+    }
+
+    return BulletinBoardCard(
+        key: oldKey,
+        cardFSM: oldFSM,
+        cardPosition: newPosition,
+        initialTitle: titleToUpdate,
+        initialDescription: descriptionToUpdate);
+  }
+
+  bool _isDiffNotZero() {
+    return newMousePoint != null || newTitle != null || newDescription != null;
   }
 }
 
