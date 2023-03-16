@@ -12,6 +12,9 @@ import 'dart:math';
 typedef OnCardFocusChanged = void Function(bool);
 typedef OnCardDeleteEventInternal = VoidCallback;
 
+typedef OnCardTitleChanged = void Function(String);
+typedef OnCardDescriptionChanged = void Function(String);
+
 class BulletinBoardCardPresentation extends StatelessWidget {
   static const double cardWidth = 200.0;
   static const double cardHeight = 200.0;
@@ -25,6 +28,10 @@ class BulletinBoardCardPresentation extends StatelessWidget {
       required this.onPointerDownEvent,
       required this.onCardDeleteEventInternal,
       required this.bSelected,
+      required this.onCardTitleChanged,
+      required this.onCardDescriptionChanged,
+      this.initialTitle = "",
+      this.initialDescription = "",
       super.key});
 
   final MousePoint cardPosition;
@@ -33,30 +40,38 @@ class BulletinBoardCardPresentation extends StatelessWidget {
   final OnPointerDownEvent onPointerDownEvent;
   final OnCardDeleteEventInternal onCardDeleteEventInternal;
   final bool bSelected;
+  final String initialTitle;
+  final String initialDescription;
+  final OnCardTitleChanged onCardTitleChanged;
+  final OnCardDescriptionChanged onCardDescriptionChanged;
 
   TextField _createTitleTextField(BuildContext context, final double fontSize) {
-    return const TextField(
-      decoration: InputDecoration(hintText: "Title"),
-      style: TextStyle(
+    return TextField(
+      decoration: const InputDecoration(hintText: "Title"),
+      style: const TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.bold,
       ),
       textInputAction: TextInputAction.next,
+      controller: TextEditingController(text: initialTitle),
+      onChanged: onCardTitleChanged,
     );
   }
 
   TextField _createDescriptionTextField(
       BuildContext context, final double fontSize) {
-    return const TextField(
-        decoration: InputDecoration(
+    return TextField(
+        decoration: const InputDecoration(
           hintText: "Description",
           border: InputBorder.none,
         ),
         keyboardType: TextInputType.multiline,
-        style: TextStyle(
+        style: const TextStyle(
           fontSize: 14,
         ),
         textInputAction: TextInputAction.newline,
+        controller: TextEditingController(text: initialDescription),
+        onChanged: onCardDescriptionChanged,
         minLines: 1,
         maxLines: 4);
   }
@@ -148,10 +163,16 @@ class BulletinBoardCardPresentation extends StatelessWidget {
 
 class BulletinBoardCard extends StatefulWidget {
   const BulletinBoardCard(
-      {required this.cardPosition, required this.cardFSM, super.key});
+      {required this.cardPosition,
+      required this.cardFSM,
+      this.initialTitle = "",
+      this.initialDescription = "",
+      super.key});
 
   final bbcard_fsm.BulletinBoardCardFiniteStateMachine cardFSM;
   final Point<double> cardPosition;
+  final String initialTitle;
+  final String initialDescription;
 
   @override
   State<BulletinBoardCard> createState() => _BulletinBoardCardState();
@@ -161,6 +182,9 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
   BulletinBoardCardID? _bulletinBoardCardId;
   bbcard_fsm.BulletinBoardCardFiniteStateMachine? _cardFSM;
 
+  String _title = "";
+  String _description = "";
+
   @override
   void initState() {
     super.initState();
@@ -168,6 +192,9 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     _bulletinBoardCardId = BulletinBoardCardKey.retrieveIDFromKey(widget.key!);
     _cardFSM = widget.cardFSM;
     _cardFSM!.initialize(_bulletinBoardCardId!);
+
+    _title = widget.initialTitle;
+    _description = widget.initialDescription;
   }
 
   @override
@@ -193,16 +220,31 @@ class _BulletinBoardCardState extends State<BulletinBoardCard> {
     _getCurrentFSMState().onCardDeletionRequested();
   }
 
+  void _onCardTitleChanged(String text) {
+    _title = text;
+    _getCurrentFSMState().onCardTitleChanged(text);
+  }
+
+  void _onCardDesriptionChanged(String text) {
+    _description = text;
+    _getCurrentFSMState().onCardDescriptionChanged(text);
+  }
+
   @override
   Widget build(BuildContext context) {
     return BulletinBoardCardPresentation(
-        onCardFocusChanged: _onCardFocusChanged,
-        onPointerUpEvent: _onPointerUpOnCard,
-        onPointerDownEvent: _onPointerDownOnCard,
-        onCardDeleteEventInternal: _onCardDeleteButtonEvent,
-        bSelected:
-            bbcard_fsm.BulletinBoardCardFSMUtils.isInSelectedState(_cardFSM!),
-        cardPosition: widget.cardPosition);
+      onCardFocusChanged: _onCardFocusChanged,
+      onPointerUpEvent: _onPointerUpOnCard,
+      onPointerDownEvent: _onPointerDownOnCard,
+      onCardDeleteEventInternal: _onCardDeleteButtonEvent,
+      bSelected:
+          bbcard_fsm.BulletinBoardCardFSMUtils.isInSelectedState(_cardFSM!),
+      cardPosition: widget.cardPosition,
+      initialTitle: _title,
+      initialDescription: _description,
+      onCardTitleChanged: _onCardTitleChanged,
+      onCardDescriptionChanged: _onCardDesriptionChanged,
+    );
   }
 
   bbcard_fsm.BulletinBoardCardFSMState _getCurrentFSMState() {

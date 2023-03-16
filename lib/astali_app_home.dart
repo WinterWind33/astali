@@ -161,12 +161,12 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
         _cardsManager.addCard(BulletinBoardCard(
             key: cardKey,
             cardPosition: cardData.cardPosition,
+            initialTitle: cardData.cardTitle,
+            initialDescription: cardData.cardDescription,
             cardFSM: BulletinBoardCardNonDeterministicFSM(
                 _cardsManager, _safeSelectionController)));
       }
-    } catch (e) {
-      print(e);
-    }
+    } catch (e) {}
   }
 
   void _serializeBulletinBoardJsonProject(final String projectName) {
@@ -176,8 +176,10 @@ class _AstaliAppHomeState extends State<AstaliAppHome> {
     List<Map<String, dynamic>> cardsListJson =
         List<Map<String, dynamic>>.empty(growable: true);
     for (var card in bulletinBoardCards.values) {
-      BulletinBoardCardData cardData =
-          BulletinBoardCardData(cardPosition: card.cardPosition);
+      BulletinBoardCardData cardData = BulletinBoardCardData(
+          cardPosition: card.cardPosition,
+          cardDescription: card.initialDescription,
+          cardTitle: card.initialTitle);
 
       cardsListJson.add(cardData.toJson());
     }
