@@ -6,9 +6,6 @@ on:
     branches-ignore:
       - "main"
 
-env:
-  CMAKE_VERSION: "3.26.1"
-
 jobs:
   ubuntu-build:
     runs-on: ubuntu-latest
