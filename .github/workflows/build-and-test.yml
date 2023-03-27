@@ -20,12 +20,12 @@ jobs:
           flutter packages get
           flutter upgrade
           flutter pub get
-          flutter config --enable-ubuntu-desktop
+          flutter config --enable-linux-desktop
           flutter pub run build_runner build --delete-conflicting-outputs
 
       - name: Astali build
         run: |
-          flutter build ubuntu
+          flutter build linux --release
 
       - name: Tests run
         run: |
@@ -54,3 +54,27 @@ jobs:
         - name: Tests run
           run: |
             flutter test
+
+  macos-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Flutter Configure
+        run: |
+          flutter packages get
+          flutter upgrade
+          flutter pub get
+          flutter config --enable-macos-desktop
+          flutter pub run build_runner build --delete-conflicting-outputs
+
+      - name: Astali build
+        run: |
+          flutter build macos
+
+      - name: Tests run
+        run: |
+          flutter test
