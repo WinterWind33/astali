@@ -24,6 +24,9 @@ jobs:
       - name: Build with CMake
         uses: ashutoshvarma/action-cmake-build@master
         with:
+          build-dir: ${{ github.workspace }}/build
+          cc: gcc
+          cxx: g++
           configure-options: -G Ninja
           build-type: Release
 
