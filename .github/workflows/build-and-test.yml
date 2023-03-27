@@ -18,6 +18,15 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Setup Ninja
+        uses: ashutoshvarma/setup-ninja@master
+
+      - name: Build with CMake
+        uses: ashutoshvarma/action-cmake-build@master
+        with:
+          configure-options: -G Ninja
+          build-type: Release
+
       - name: Flutter Configure
         run: |
           flutter packages get
