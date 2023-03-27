@@ -7,8 +7,8 @@ on:
       - "main"
 
 jobs:
-  windows_build:
-    runs-on: windows-latest
+  ubuntu-build:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: subosito/flutter-action@v2
@@ -20,13 +20,37 @@ jobs:
           flutter packages get
           flutter upgrade
           flutter pub get
-          flutter config --enable-windows-desktop
+          flutter config --enable-ubuntu-desktop
           flutter pub run build_runner build --delete-conflicting-outputs
 
       - name: Astali build
         run: |
-          flutter build windows
+          flutter build ubuntu
 
       - name: Tests run
         run: |
           flutter test
+
+  windows-build:
+      runs-on: windows-latest
+      steps:
+        - uses: actions/checkout@v3
+        - uses: subosito/flutter-action@v2
+          with:
+            channel: 'stable'
+
+        - name: Flutter Configure
+          run: |
+            flutter packages get
+            flutter upgrade
+            flutter pub get
+            flutter config --enable-windows-desktop
+            flutter pub run build_runner build --delete-conflicting-outputs
+
+        - name: Astali build
+          run: |
+            flutter build windows
+
+        - name: Tests run
+          run: |
+            flutter test
