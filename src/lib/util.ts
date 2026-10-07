@@ -12,6 +12,9 @@ export function uid(len = 10): string {
 
 export const now = () => new Date().toISOString();
 
+/** How shortcut hints name the modifier key: ⌘ on macOS, where shortcuts also take Cmd, else Ctrl. */
+export const MOD_KEY = /Mac/i.test(navigator.userAgent) ? "⌘" : "Ctrl";
+
 export function slugify(s: string): string {
   return (
     s

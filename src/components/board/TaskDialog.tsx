@@ -34,7 +34,7 @@ import {
 import { isViewColumn } from "../../lib/labelColumns";
 import { defaultTagColor, tagKey } from "../../lib/tags";
 import type { GhIssue, Priority, Task } from "../../lib/types";
-import { cx, relativeTime, uid } from "../../lib/util";
+import { cx, MOD_KEY, relativeTime, uid } from "../../lib/util";
 import { ColorPicker } from "../ColorPicker";
 import { TagInput } from "../TagInput";
 import { IssuePanel, IssueStateIcon, Markdown, Modal, Popover, TagChip, confirm, Github } from "../ui";
@@ -430,7 +430,7 @@ export function TaskDialog({
               <Trash2 size={14} /> Delete task
             </button>
             <div className="task-dialog-actions">
-              <span className="faint small">{dirty ? "Unsaved changes · Ctrl+Enter saves" : "No changes"}</span>
+              <span className="faint small">{dirty ? `Unsaved changes · ${MOD_KEY}+Enter saves` : "No changes"}</span>
               <div className="task-dialog-buttons">
                 <button className="btn ghost" onClick={close}>
                   Cancel

@@ -14,7 +14,7 @@ import {
   Tags,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { cx } from "../lib/util";
+import { cx, MOD_KEY } from "../lib/util";
 import { Modal, ModalHeader } from "./ui";
 
 interface HelpPage {
@@ -215,7 +215,7 @@ const PAGES: HelpPage[] = [
           <li>The round + button gives you a note that follows the pointer: click to pin it, then write.</li>
           <li>
             Drag a note to move it; double-click it or use its pencil to edit it, then <b>Save</b> (
-            <kbd>Ctrl+Enter</kbd>).
+            <kbd>{MOD_KEY}+Enter</kbd>).
           </li>
           <li>
             A note can have a color from its palette, tags and linked GitHub issues. Without a color it takes its first
@@ -246,9 +246,9 @@ const PAGES: HelpPage[] = [
         </p>
         <p>
           The search box matches every word; <kbd>Enter</kbd> opens the best match, and <kbd>/</kbd> or{" "}
-          <kbd>Ctrl+F</kbd> jumps back to it. Decisions share the project's tags and can link GitHub issues. When you
-          change your mind, mark the old decision as <b>replaced</b> by the new one. A plan item or question can also
-          become a decision with
+          <kbd>{MOD_KEY}+F</kbd> jumps back to it. Decisions share the project's tags and can link GitHub issues. When
+          you change your mind, mark the old decision as <b>replaced</b> by the new one. A plan item or question can
+          also become a decision with
           <b> Record as decision</b>.
         </p>
       </>

@@ -39,7 +39,7 @@ import {
 } from "../lib/store";
 import { tagColor } from "../lib/tags";
 import type { Color, GhIssue, Note, Project } from "../lib/types";
-import { colorHex, cx, issueKey, relativeTime } from "../lib/util";
+import { colorHex, cx, issueKey, MOD_KEY, relativeTime } from "../lib/util";
 import { ColorPicker } from "./ColorPicker";
 import { PromoteDialog } from "./PromoteDialog";
 import { IssueChip } from "./DecisionDialog";
@@ -723,7 +723,7 @@ function NoteEditor({
           )}
           <span className="spacer" />
           <span className="faint small note-dialog-meta">
-            {isNew ? "Ctrl+Enter saves" : `Updated ${relativeTime(note.updatedAt)}`}
+            {isNew ? `${MOD_KEY}+Enter saves` : `Updated ${relativeTime(note.updatedAt)}`}
           </span>
           <button className="btn ghost" onClick={close}>
             Cancel
