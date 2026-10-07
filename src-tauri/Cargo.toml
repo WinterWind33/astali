@@ -1,0 +1,35 @@
+[package]
+name = "astali"
+version = "1.7.0"
+description = "A free, local-first planning app: kanban boards, plans, notes and decisions, with a built-in MCP server for AI agents"
+authors = ["Andrea Ballestrazzi"]
+license = "MIT"
+repository = "https://github.com/WinterWind33/astali"
+homepage = "https://github.com/WinterWind33/astali"
+edition = "2021"
+
+[lib]
+name = "astali_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify = "8"
+ureq = { version = "2", features = ["json"] }
+# The GitHub token lives in the OS credential store: Credential Manager, Keychain, Secret Service.
+keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service", "crypto-rust"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -1,0 +1,34 @@
+{
+  "folders": [
+    { "name": "astali", "path": "." }
+  ],
+  "settings": {
+    "rust-analyzer.linkedProjects": ["src-tauri/Cargo.toml"],
+    "rust-analyzer.check.command": "clippy",
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "editor.formatOnSave": true,
+    "[rust]": { "editor.defaultFormatter": "rust-lang.rust-analyzer" },
+    "files.exclude": {
+      "**/node_modules": true,
+      "src-tauri/target": true,
+      "src-tauri/gen": true
+    },
+    "search.exclude": {
+      "dist": true,
+      "package-lock.json": true,
+      "src-tauri/icons": true
+    },
+    "files.watcherExclude": {
+      "**/node_modules/**": true,
+      "**/src-tauri/target/**": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "tauri-apps.tauri-vscode",
+      "rust-lang.rust-analyzer",
+      "ms-vscode.cpptools",
+      "vadimcn.vscode-lldb"
+    ]
+  }
+}

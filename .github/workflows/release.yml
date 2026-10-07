@@ -1,0 +1,124 @@
+# Builds and publishes a release when main carries a version that has none yet (D-10).
+# Written in the development repo and synced here; it only runs in the public repo.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'WinterWind33/astali'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release-id: ${{ steps.draft.outputs.id }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the version
+        id: version
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          draft=$(gh release view "v$version" --json isDraft -q .isDraft 2>/dev/null || echo none)
+          if [ "$draft" = "false" ]; then
+            echo "v$version is already released: nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [ "$draft" = "true" ]; then
+            echo "Removing the draft left by an earlier run that didn't finish."
+            gh release delete "v$version" --yes
+          fi
+
+      # A draft stays invisible to the app until every platform is in it.
+      - name: Create the draft release
+        id: draft
+        if: steps.version.outputs.exists != 'true'
+        run: |
+          version=${{ steps.version.outputs.version }}
+          node scripts/release-notes.mjs "$version" > notes.md
+          gh release create "v$version" --draft --title "Astali $version" --notes-file notes.md --target "$GITHUB_SHA"
+          echo "id=$(gh release view "v$version" --json databaseId -q .databaseId)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.release-id != ''
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: --target universal-apple-darwin
+          - os: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            libssl-dev libdbus-1-dev patchelf
+
+      - run: npm ci
+
+      # Updater artifacts (.sig files, latest.json) need the private key, so they're only made here.
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.prepare.outputs.release-id }}
+          args: ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          updaterJsonPreferNsis: true
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The update dialog shows every release since the installed version, so the notes carry the last ten.
+      - name: Put the recent release notes in latest.json
+        run: |
+          tag="v${{ needs.prepare.outputs.version }}"
+          gh release download "$tag" --pattern latest.json --dir out
+          for p in windows-x86_64 darwin-aarch64 darwin-x86_64 linux-x86_64; do
+            jq -e --arg p "$p" '.platforms[$p]' out/latest.json >/dev/null || { echo "::error::latest.json has no $p"; exit 1; }
+          done
+          node scripts/release-notes.mjs --recent 10 > recent.md
+          jq --rawfile notes recent.md '.notes = $notes' out/latest.json > latest.json
+          gh release upload "$tag" latest.json --clobber
+
+      - name: Publish the release
+        run: gh release edit "v${{ needs.prepare.outputs.version }}" --draft=false --latest

@@ -1,0 +1,12 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+src/generated
+*.log
+
+# >>> Astali kanban (managed by the Astali app; edits inside this block are overwritten) >>>
+/astali-project-vault/.astali/
+/astali-project-vault/AGENTS.md
+/astali-project-vault/project-management/
+# <<< Astali kanban <<<

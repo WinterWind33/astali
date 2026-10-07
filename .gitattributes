@@ -1,0 +1,19 @@
+# Normalize text files to LF in the repository and the working tree, regardless of core.autocrlf.
+* text=auto eol=lf
+
+# Windows scripts need CRLF to run reliably.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary assets: never touch line endings or diff them as text.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+
+# Lockfiles are generated; collapse them in GitHub diffs and language stats.
+package-lock.json linguist-generated=true
+Cargo.lock        linguist-generated=true

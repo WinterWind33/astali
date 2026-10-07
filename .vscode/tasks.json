@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Vite dev server. Background task: VS Code treats it as "ready" once Vite prints its URL.
+      "label": "ui:dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "isBackground": true,
+      "presentation": { "reveal": "silent", "panel": "dedicated", "group": "astali" },
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": { "regexp": "^__never_matches__$" },
+        "background": {
+          "activesBegins": true,
+          "beginsPattern": "VITE v",
+          "endsPattern": "Local:"
+        }
+      }
+    },
+    {
+      // Debug build of the Rust backend. Without the `custom-protocol` feature (which only the
+      // Tauri CLI enables for release builds), the app loads the UI from the Vite dev server.
+      "label": "build:debug",
+      "type": "shell",
+      "command": "cargo build --manifest-path=\"${workspaceFolder}/src-tauri/Cargo.toml\"",
+      "presentation": { "reveal": "silent", "panel": "dedicated", "group": "astali" },
+      "problemMatcher": []
+    },
+    {
+      "label": "dev",
+      "dependsOn": ["ui:dev", "build:debug"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "tauri: dev",
+      "detail": "Run the app with hot reload (no debugger)",
+      "type": "shell",
+      "command": "npm run tauri dev",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "tauri: build",
+      "detail": "Release exe + MSI/NSIS installers",
+      "type": "shell",
+      "command": "npm run tauri build",
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "typecheck",
+      "type": "shell",
+      "command": "npx tsc --noEmit",
+      "problemMatcher": ["$tsc"]
+    }
+  ]
+}

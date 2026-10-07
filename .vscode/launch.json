@@ -1,0 +1,67 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Rust backend on Windows (needs the C/C++ extension: ms-vscode.cpptools).
+      // Also opens a DevTools port on the WebView so "Astali: Attach to WebView" can connect.
+      "name": "Astali: Debug (Rust)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/src-tauri/target/debug/astali.exe",
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        { "name": "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "value": "--remote-debugging-port=9222" },
+        { "name": "RUST_BACKTRACE", "value": "1" }
+      ],
+      "console": "integratedTerminal",
+      "preLaunchTask": "dev"
+    },
+    {
+      // Frontend (React/TS) breakpoints: attaches to the WebView2 DevTools port opened above.
+      "name": "Astali: Attach to WebView",
+      "type": "msedge",
+      "request": "attach",
+      "port": 9222,
+      "useWebView": true,
+      "timeout": 30000,
+      "webRoot": "${workspaceFolder}",
+      "sourceMaps": true
+    },
+    {
+      // Debug the MCP server mode. It speaks JSON-RPC on stdin, so type requests into the terminal, e.g.
+      // {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_projects","arguments":{}}}
+      "name": "Astali: Debug MCP server (Rust)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/src-tauri/target/debug/astali.exe",
+      "args": ["mcp", "--vault", "${input:vaultPath}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build:debug"
+    },
+    {
+      // macOS / Linux alternative (needs CodeLLDB: vadimcn.vscode-lldb).
+      "name": "Astali: Debug (Rust, LLDB)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/src-tauri/target/debug/astali",
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" },
+      "preLaunchTask": "dev"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Astali: Full stack (Rust + WebView)",
+      "configurations": ["Astali: Debug (Rust)", "Astali: Attach to WebView"],
+      "stopAll": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "vaultPath",
+      "type": "promptString",
+      "description": "Vault folder for the MCP server"
+    }
+  ]
+}
