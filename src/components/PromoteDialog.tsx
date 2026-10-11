@@ -1,7 +1,8 @@
-import { ArrowUpRight, Kanban, Lightbulb, ListChecks, StickyNote } from "lucide-react";
+import { ArrowUpRight, BookA, Kanban, Lightbulb, ListChecks, StickyNote } from "lucide-react";
 import { useMemo, useState } from "react";
 import { type PromoteIcon, type PromoteTarget, type Promotable, promoteTargets } from "../lib/promote";
-import { toast, useStore } from "../lib/store";
+import { findTerm } from "../lib/glossary";
+import { glossaryBoard, toast, useStore } from "../lib/store";
 import { DecisionDialog } from "./DecisionDialog";
 import { Modal, ModalHeader } from "./ui";
 
@@ -9,6 +10,7 @@ const ICONS: Record<PromoteIcon, React.ReactNode> = {
   kanban: <Kanban size={14} />,
   plan: <ListChecks size={14} />,
   notes: <StickyNote size={14} />,
+  glossary: <BookA size={14} />,
   decision: <Lightbulb size={14} />,
 };
 
@@ -54,6 +56,15 @@ export function PromoteDialog({
     if (t.run === "dialog") return setDecision(true);
     const r = t.run(item);
     if (r) done(r.what);
+    else if (t.icon === "glossary")
+      toast(
+        !item.title.trim()
+          ? `Give the ${noun} a title first: it becomes the term`
+          : findTerm(glossaryBoard()?.terms ?? [], item.title.trim())
+            ? `“${item.title.trim()}” is already in the glossary`
+            : `The ${noun}'s text is longer than the glossary allows for a definition`,
+        "error",
+      );
     else toast(`Could not promote the ${noun} there`, "error");
   };
 

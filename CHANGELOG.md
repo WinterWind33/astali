@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-11
+
+### Added
+
+- **Glossary**: keep the terms, acronyms and names a project uses, with what they mean, from *Glossary* in the
+  sidebar. Terms are listed A–Z with a search box, and each card shows the first two lines of its definition.
+- Glossary definitions stay short: 300 characters by default, changed in the project settings.
+- A glossary term can have tags and a source, a link or a book and page. A note can be promoted to a term.
+- The MCP server reads and edits the glossary with `search_terms`, `create_term`, `update_term` and `delete_term`.
+- An AI agent can make a new vault for you with the MCP server's `create_vault`, and keep its files out of the
+  repository's commits with `set_gitignore`.
+- Sort a column's tasks by priority, name, creation date or due date from its menu. It sorts once, so you can still
+  drag tasks into any order afterwards.
+
+### Changed
+
+- Tag columns leave out finished tasks, the ones in the done column.
+- A note can be blank, with no title and no text, as a marker or to fill in later.
+- Pinning a new note no longer opens the editor: the note goes on the board blank, so you can pin several in a row
+  and write them later.
+- The pointer stays an arrow over a note, and turns into a hand only while you drag it.
+
+### Fixed
+
+- A task you're typing in a column is added when you click empty board space, as it is when you click anywhere else.
+  Before, on a board wider than the window, the box stayed open.
+- Undoing a change that moved several tasks within a column puts them back in their old order.
+- Promoting a note no longer turns the window blank when the vault has a kind of board this version doesn't know,
+  e.g. a glossary made with a newer Astali.
+- If something unexpected goes wrong, Astali shows what happened and a Reload button instead of a blank window.
+- A plan drafted in Markdown keeps a step whose title mentions a question, such as "Research question", instead of
+  turning its items into open questions.
+- On Linux, the AppImage's Settings → AI integration shows a command that keeps working after Astali restarts.
+
 ## [1.7.1] - 2026-10-07
 
 ### Fixed

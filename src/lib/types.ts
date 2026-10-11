@@ -21,6 +21,8 @@ export interface Project {
   tagColors: Record<string, Color>;
   /** Most characters a decision's why and rejected alternative may hold together. */
   decisionCharLimit: number;
+  /** Most characters a glossary term's definition may hold. */
+  glossaryCharLimit: number;
   boardOrder: string[];
   createdAt: string;
   updatedAt: string;
@@ -170,21 +172,37 @@ export interface Note {
   updatedAt: string;
 }
 
+/** An entry of a glossary board: a term, acronym or name, and what it means. */
+export interface GlossaryTerm {
+  id: string;
+  term: string;
+  /** Markdown. */
+  definition: string;
+  /** The project's own tags (never GitHub labels). */
+  tags: string[];
+  /** Where the definition comes from: a link, or any text such as a book and page; "" when none. */
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Board {
   schemaVersion: number;
   id: string;
   name: string;
   description: string;
   /**
-   * "plan" boards hold a `plan`, "notes" boards hold `notes`, instead of columns and tasks; absent
-   * means a kanban board.
+   * "plan" boards hold a `plan`, "notes" boards hold `notes`, "glossary" boards hold `terms`, instead
+   * of columns and tasks; absent means a kanban board.
    */
-  kind?: "plan" | "notes";
+  kind?: "plan" | "notes" | "glossary";
   plan?: Plan;
   /** Post-its of a notes board, bottom to top (the last one is drawn over the others). */
   notes?: Note[];
   /** Most characters a note's title and description may hold together, on a notes board. */
   noteLimit?: number;
+  /** Entries of a glossary board, in the order they were added (the view sorts them). */
+  terms?: GlossaryTerm[];
   columns: Column[];
   /**
    * Id of the column where finished work ends up, which the progress bar counts and blocked tasks
@@ -403,6 +421,7 @@ export type ProjectView =
   | { kind: "activity"; boardId?: string }
   | { kind: "tags"; tag?: TagRef }
   | { kind: "decisions"; decisionId?: string }
+  | { kind: "glossary"; termId?: string }
   | { kind: "empty" };
 
 /** A tag of the project's tasks, or a label of one of its GitHub repositories. */

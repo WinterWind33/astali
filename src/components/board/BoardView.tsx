@@ -88,6 +88,9 @@ function useHorizontalPan(el: HTMLDivElement | null) {
       const empty = e.button === 0 && e.target === el;
       if (!empty && e.button !== 1) return;
       if (el.scrollWidth <= el.clientWidth) return;
+      // preventDefault keeps focus where it is; a left click on empty space should still take it, so that
+      // an open quick-add box loses focus and adds its task like a click anywhere else.
+      if (empty && document.activeElement instanceof HTMLElement) document.activeElement.blur();
       e.preventDefault();
       pan = { id: e.pointerId, x: e.clientX, left: el.scrollLeft };
       el.setPointerCapture(e.pointerId);

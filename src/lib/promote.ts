@@ -1,7 +1,8 @@
 import { isViewColumn } from "./labelColumns";
 import { NOTE_WIDTH } from "./notes";
 import { newStep } from "./plan";
-import { addNote, addTask, orderedBoards, patchPlan } from "./store";
+import { definitionLength, findTerm } from "./glossary";
+import { addNote, addTask, addTerm, glossaryBoard, glossaryLimit, orderedBoards, patchPlan } from "./store";
 import type { Board, IssueRef } from "./types";
 import { issueKey } from "./util";
 
@@ -22,7 +23,7 @@ export interface Promotable {
   issues: IssueRef[];
 }
 
-export type PromoteIcon = "kanban" | "plan" | "notes" | "decision";
+export type PromoteIcon = "kanban" | "plan" | "notes" | "glossary" | "decision";
 
 /** Where the promoted item ended up, for the confirmation. */
 export interface Promoted {
@@ -118,10 +119,29 @@ const RECEIVERS: Record<BoardKind, (board: Board) => PromoteTarget[]> = {
       },
     },
   ],
+  // The glossary is offered with the project-wide targets below, even before it has a board.
+  glossary: () => [],
 };
 
 /** Destinations that aren't boards. */
 const PROJECT_TARGETS: PromoteTarget[] = [
+  {
+    id: "glossary",
+    group: "Glossary",
+    icon: "glossary",
+    label: "Term",
+    // Terms have no linked issues.
+    loses: "issues",
+    run: (item) => {
+      const term = item.title.trim();
+      // The title becomes the term, so it must be there and new to the glossary.
+      if (!term || findTerm(glossaryBoard()?.terms ?? [], term)) return null;
+      if (definitionLength(item.body.trim()) > glossaryLimit()) return null;
+      return addTerm({ term, definition: item.body.trim(), tags: item.tags, source: "" })
+        ? { what: `the term “${term}” in the glossary` }
+        : null;
+    },
+  },
   { id: "decision", group: "Decisions", icon: "decision", label: "Decision", run: "dialog" },
 ];
 
@@ -130,7 +150,8 @@ export function promoteTargets(fromBoardId?: string): PromoteTarget[] {
   return [
     ...orderedBoards()
       .filter((b) => b.id !== fromBoardId)
-      .flatMap((b) => RECEIVERS[boardKind(b)](b)),
+      // A kind from a newer version (sharing the vault) has no receiver here: it takes nothing (D-14).
+      .flatMap((b) => RECEIVERS[boardKind(b)]?.(b) ?? []),
     ...PROJECT_TARGETS,
   ];
 }

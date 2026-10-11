@@ -172,7 +172,14 @@ pub fn from_markdown(md: &str) -> (Option<String>, Value) {
             if let Some(h) = line.strip_prefix("## ") {
                 let lower = h.trim().to_lowercase();
                 stack.clear();
-                section = if lower.contains("question") {
+                // "Questions", "Open questions…", but not a step such as "Research question and literature".
+                let questions = [
+                    "question",
+                    "open question",
+                    "unresolved question",
+                    "unanswered question",
+                ];
+                section = if questions.iter().any(|q| lower.starts_with(q)) {
                     Section::Questions
                 } else if lower == "notes" || lower.starts_with("known limit") || lower.starts_with("limits") {
                     Section::Notes
@@ -622,6 +629,15 @@ Known limits: Win32 merges all keyboards.
         assert_eq!(qs[1]["decision"], 3);
         assert_eq!(plan["notes"], "Known limits: Win32 merges all keyboards.");
         assert_eq!(plan_progress(&plan), (5, 7));
+    }
+
+    #[test]
+    fn only_a_questions_heading_starts_the_questions() {
+        let md = "## Research question and literature\n- [ ] Read papers\n\n## Open questions\n- Which survey tool?\n";
+        let (_, plan) = from_markdown(md);
+        assert_eq!(plan["steps"][0]["title"], "Research question and literature");
+        assert_eq!(plan["steps"][0]["items"][0]["text"], "Read papers");
+        assert_eq!(plan["questions"][0]["text"], "Which survey tool?");
     }
 
     #[test]

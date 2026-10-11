@@ -1,4 +1,5 @@
 import {
+  BookA,
   Bot,
   ChevronLeft,
   ChevronRight,
@@ -71,7 +72,7 @@ const PAGES: HelpPage[] = [
             items left.
           </li>
           <li>
-            <b>Activity</b>, <b>Tags</b> and <b>Decisions</b>, views that cover the whole project.
+            <b>Activity</b>, <b>Tags</b>, <b>Decisions</b> and <b>Glossary</b>, views that cover the whole project.
           </li>
           <li>
             <b>GitHub</b>, when the project is linked to a repository.
@@ -152,9 +153,10 @@ const PAGES: HelpPage[] = [
           task's details; the field suggests the tags the project already uses. Click a tag to change its color.
         </p>
         <p>
-          A <b>tag column</b> (<b>Add tag column</b>, below Add column) always shows the board's tasks carrying some
-          tags (any or all of them), while the tasks stay in their own columns. Dropping a task on it gives the task
-          those tags, and each card says which column it really lives in.
+          A <b>tag column</b> (<b>Add tag column</b>, below Add column) always shows the board's unfinished tasks
+          carrying some tags (any or all of them), while the tasks stay in their own columns. Dropping a task on it
+          gives the task those tags, and each card says which column it really lives in. Once a task reaches the done
+          column it leaves the tag column.
         </p>
         <p>
           The <b>Tags</b> view in the sidebar lists every tag of the project with how often it's used. Pick one to see
@@ -212,7 +214,10 @@ const PAGES: HelpPage[] = [
           <li>
             Drag the grid or scroll to move around; <kbd>Ctrl</kbd>+scroll zooms.
           </li>
-          <li>The round + button gives you a note that follows the pointer: click to pin it, then write.</li>
+          <li>
+            The round + button gives you a note that follows the pointer: click to pin it, blank. Double-click it to
+            write.
+          </li>
           <li>
             Drag a note to move it; double-click it or use its pencil to edit it, then <b>Save</b> (
             <kbd>{MOD_KEY}+Enter</kbd>).
@@ -226,6 +231,39 @@ const PAGES: HelpPage[] = [
         <p>
           When an idea is ready, <b>promote</b> it with its ↗ button: it becomes a task on a board, a step of a plan, a
           note elsewhere or a decision. Tick <b>Keep the note too</b> if you want it to stay on the board.
+        </p>
+      </>
+    ),
+  },
+  {
+    title: "Glossary",
+    icon: <BookA size={18} />,
+    body: (
+      <>
+        <p>
+          The <b>Glossary</b>, in the sidebar, keeps the words a project uses and what they mean: course terms,
+          acronyms, names.
+        </p>
+        <ul>
+          <li>
+            <b>New term</b> asks for the term and its definition, with optional tags and a source: a link, or a book and
+            page. Save with <kbd>{MOD_KEY}+Enter</kbd>.
+          </li>
+          <li>
+            A definition is kept short, 300 characters by default (set in the project settings): what the term means
+            here, with a link to the long version as its source.
+          </li>
+          <li>
+            Terms are listed A–Z. A longer definition shows its first two lines; <b>Show more</b> opens it.
+          </li>
+          <li>
+            The search box finds a term by its name first, then by its tags and definition; <kbd>/</kbd> or{" "}
+            <kbd>{MOD_KEY}+F</kbd> jumps back to it.
+          </li>
+          <li>Each term is in the glossary once: it tells you when the one you type is already there.</li>
+        </ul>
+        <p>
+          A note can become a term with <b>Promote</b>: its title is the term, its text the definition.
         </p>
       </>
     ),

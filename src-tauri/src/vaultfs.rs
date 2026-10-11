@@ -136,6 +136,30 @@ pub fn is_vault(dir: &Path) -> bool {
     dir.join(".astali").join("vault.json").is_file()
 }
 
+/// The vault's `AGENTS.md`, the same text the app writes (`src/lib/vault.ts`).
+const VAULT_GUIDE: &str = include_str!("../../src/lib/vault-guide.md");
+
+/// Sets up `dir` as a vault like the app's `ensureVault`: `.astali/vault.json` (named `name`, if given)
+/// when missing, and our guide as `AGENTS.md` unless the folder has another one. Returns whether the
+/// folder was not a vault before.
+pub fn ensure_vault(dir: &Path, name: Option<&str>) -> Result<bool, String> {
+    let created = !is_vault(dir);
+    if created {
+        let mut meta = serde_json::json!({ "schemaVersion": 1, "createdAt": now_iso(), "app": "Astali" });
+        if let Some(n) = name.map(str::trim).filter(|n| !n.is_empty()) {
+            meta["name"] = n.into();
+        }
+        write_json(&dir.join(".astali").join("vault.json"), &meta)?;
+    }
+    let guide = VAULT_GUIDE.replace("\r\n", "\n");
+    let agents = dir.join("AGENTS.md");
+    match fs::read_to_string(&agents) {
+        Ok(old) if !old.starts_with("# Astali vault") || old.replace("\r\n", "\n") == guide => {}
+        _ => write_atomic(&agents, &guide)?,
+    }
+    Ok(created)
+}
+
 /// The vault that belongs to `start`, a folder an agent runs in: `start` itself or a folder
 /// directly inside it, then the same for each parent up to the repository root (never above it,
 /// and not at all outside a repository). The nearest wins; side by side, the first by name.
@@ -188,6 +212,29 @@ mod tests {
         assert_eq!(find_vault_near(&repo.join("src/deep")), Some(repo.join("kb")));
         assert_eq!(find_vault_near(&repo.join("kb")), Some(repo.join("kb")));
         let _ = fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn sets_up_a_vault_and_leaves_a_foreign_guide_alone() {
+        let dir = tmp("ensure");
+        assert!(ensure_vault(&dir.join("kb"), Some(" Thesis ")).unwrap());
+        assert!(is_vault(&dir.join("kb")));
+        assert_eq!(read_json(&dir.join("kb/.astali/vault.json")).unwrap()["name"], "Thesis");
+        assert!(fs::read_to_string(dir.join("kb/AGENTS.md"))
+            .unwrap()
+            .starts_with("# Astali vault"));
+        // A second run keeps the vault as it is.
+        assert!(!ensure_vault(&dir.join("kb"), Some("Other")).unwrap());
+        assert_eq!(read_json(&dir.join("kb/.astali/vault.json")).unwrap()["name"], "Thesis");
+
+        fs::write(dir.join("AGENTS.md"), "# My repo\n").unwrap();
+        assert!(ensure_vault(&dir, None).unwrap());
+        assert_eq!(fs::read_to_string(dir.join("AGENTS.md")).unwrap(), "# My repo\n");
+        assert!(read_json(&dir.join(".astali/vault.json"))
+            .unwrap()
+            .get("name")
+            .is_none());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

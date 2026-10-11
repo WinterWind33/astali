@@ -20,7 +20,6 @@ import {
   NOTE_YELLOW,
   isBlankNote,
   lastNoteColor,
-  newNote,
   noteLength,
   normalizeNoteLimit,
   rememberNoteColor,
@@ -39,7 +38,7 @@ import {
 } from "../lib/store";
 import { tagColor } from "../lib/tags";
 import type { Color, GhIssue, Note, Project } from "../lib/types";
-import { colorHex, cx, issueKey, MOD_KEY, relativeTime } from "../lib/util";
+import { colorHex, cx, issueKey, relativeTime } from "../lib/util";
 import { ColorPicker } from "./ColorPicker";
 import { PromoteDialog } from "./PromoteDialog";
 import { IssueChip } from "./DecisionDialog";
@@ -82,8 +81,8 @@ const cameras = new Map<string, Camera>();
 
 /**
  * A board of post-its on an endless grid. Drag the grid (or scroll) to move around, Ctrl+scroll or
- * the zoom controls to zoom. The + button spawns a note under the pointer; a click pins it there and
- * opens it for writing. Notes are dragged anywhere; double-clicking one edits it.
+ * the zoom controls to zoom. The + button spawns a note under the pointer; a click pins it there,
+ * blank, to be written later. Notes are dragged anywhere; double-clicking one edits it.
  */
 export function NotesView({ boardId, focusNote }: { boardId: string; focusNote?: string }) {
   const board = useStore((s) => s.boards[boardId]?.board);
@@ -96,8 +95,8 @@ export function NotesView({ boardId, focusNote }: { boardId: string; focusNote?:
     cameras.set(boardId, c);
     setCamState(c);
   };
-  /** The note open in the editor: an existing one, or a new one not on the board until it's saved. */
-  const [editing, setEditing] = useState<{ note: Note; isNew: boolean } | null>(null);
+  /** The note open in the editor. */
+  const [editing, setEditing] = useState<Note | null>(null);
   /** A new note following the pointer, in board coordinates, until a click pins it. */
   const [placing, setPlacing] = useState<{ x: number; y: number } | null>(null);
   const [panning, setPanning] = useState(false);
@@ -194,7 +193,7 @@ export function NotesView({ boardId, focusNote }: { boardId: string; focusNote?:
     if (!n || !el) return;
     const zoom = camRef.current.zoom;
     setCam({ x: el.clientWidth / 2 - (n.x + NOTE_WIDTH / 2) * zoom, y: el.clientHeight / 3 - n.y * zoom, zoom });
-    setEditing({ note: n, isNew: false });
+    setEditing(n);
   }, [focusNote]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!board?.notes) return null;
@@ -235,13 +234,16 @@ export function NotesView({ boardId, focusNote }: { boardId: string; focusNote?:
     window.addEventListener("pointercancel", up);
   };
 
-  /** A press on the grid: pins the note being placed, else starts moving around the board. */
+  /**
+   * A press on the grid: pins the note being placed, blank (no editor, so several can be pinned in a
+   * row), else starts moving around the board.
+   */
   const onViewportDown = (e: React.PointerEvent) => {
     if (placing) {
       if (e.button !== 0) return setPlacing(null);
       const at = ghostAt(e.clientX, e.clientY);
       setPlacing(null);
-      setEditing({ note: { ...newNote(at.x, at.y), color: lastNoteColor(boardId) }, isNew: true });
+      addNote(boardId, at.x, at.y, { color: lastNoteColor(boardId) });
       return;
     }
     // A press on a note's buttons or links is theirs (dragging the note itself stops here already).
@@ -262,12 +264,10 @@ export function NotesView({ boardId, focusNote }: { boardId: string; focusNote?:
 
   const save = (f: NoteFields): string | null => {
     if (!editing) return null;
-    const { note, isNew } = editing;
     setEditing(null);
-    if (f.color !== note.color) rememberNoteColor(boardId, f.color);
-    if (isNew) return addNote(boardId, note.x, note.y, f);
-    updateNote(boardId, note.id, f);
-    return note.id;
+    if (f.color !== editing.color) rememberNoteColor(boardId, f.color);
+    updateNote(boardId, editing.id, f);
+    return editing.id;
   };
 
   const promotingNote = promoting ? notes.find((n) => n.id === promoting) : undefined;
@@ -326,7 +326,7 @@ export function NotesView({ boardId, focusNote }: { boardId: string; focusNote?:
                   y={at.y}
                   dragging={drag?.id === n.id}
                   onPointerDown={(e) => startNoteDrag(e, n)}
-                  onEdit={() => setEditing({ note: n, isNew: false })}
+                  onEdit={() => setEditing(n)}
                   onColor={(anchor) => setColoring({ id: n.id, anchor })}
                   onPromote={() => setPromoting(n.id)}
                   onDelete={async () => {
@@ -405,9 +405,8 @@ export function NotesView({ boardId, focusNote }: { boardId: string; focusNote?:
 
       {editing && (
         <NoteEditor
-          key={editing.note.id}
-          note={editing.note}
-          isNew={editing.isNew}
+          key={editing.id}
+          note={editing}
           limit={limit}
           onSave={save}
           onCancel={() => setEditing(null)}
@@ -416,7 +415,7 @@ export function NotesView({ boardId, focusNote }: { boardId: string; focusNote?:
             if (id) setPromoting(id);
           }}
           onDelete={() => {
-            deleteNote(boardId, editing.note.id);
+            deleteNote(boardId, editing.id);
             setEditing(null);
           }}
         />
@@ -475,10 +474,11 @@ function NoteCard({
   onPromote: () => void;
   onDelete: () => void;
 }) {
+  const empty = !note.title.trim() && !note.description.trim();
   return (
     <div
       data-note={note.id}
-      className={cx("note", dragging && "dragging")}
+      className={cx("note", dragging && "dragging", empty && "empty")}
       style={{ left: x, top: y, width: NOTE_WIDTH, "--c": color } as React.CSSProperties}
       onPointerDown={onPointerDown}
       onDoubleClick={(e) => {
@@ -505,11 +505,7 @@ function NoteCard({
         </button>
       </div>
       {note.title.trim() && <div className="note-title">{note.title}</div>}
-      {note.description.trim() ? (
-        <Markdown className="note-body">{note.description}</Markdown>
-      ) : (
-        !note.title.trim() && <div className="note-body faint">Empty note</div>
-      )}
+      {note.description.trim() && <Markdown className="note-body">{note.description}</Markdown>}
       {(note.tags.length > 0 || note.issues.length > 0) && (
         <div className="note-foot">
           {note.tags.map((t) => (
@@ -530,7 +526,6 @@ function NoteCard({
  */
 function NoteEditor({
   note,
-  isNew,
   limit,
   onSave,
   onCancel,
@@ -538,7 +533,6 @@ function NoteEditor({
   onDelete,
 }: {
   note: Note;
-  isNew: boolean;
   limit: number;
   onSave: (f: NoteFields) => void;
   onCancel: () => void;
@@ -557,15 +551,16 @@ function NoteEditor({
 
   const len = noteLength(draft);
   // A note written under a higher limit may stay as long as it is, but not grow.
-  const room = isNew ? limit : Math.max(limit, noteLength(note));
+  const room = Math.max(limit, noteLength(note));
   const fits = len <= room;
+  // A blank note can be pinned (a marker, or to fill in later), but there's nothing in it to promote.
   const blank = isBlankNote({ ...note, ...draft });
   const dirty = JSON.stringify(draft) !== JSON.stringify(fieldsOf(note));
-  const canSave = fits && !blank && (dirty || isNew);
+  const canSave = fits && dirty;
 
   const close = async () => {
     if (asking.current) return;
-    if (dirty && !blank) {
+    if (dirty) {
       asking.current = true;
       const ok = await confirm({
         title: "Discard your changes?",
@@ -608,7 +603,7 @@ function NoteEditor({
             autoFocus={!note.title && !note.description}
             className="note-dialog-title"
             value={draft.title}
-            placeholder={isNew ? "New note" : "Title"}
+            placeholder="Title"
             onChange={(e) => set({ title: e.target.value.replace(/\n/g, " ") })}
           />
           <button className="icon-btn" onClick={close} aria-label="Close" title="Close">
@@ -691,45 +686,39 @@ function NoteEditor({
         </div>
 
         <div className="note-dialog-foot">
-          {!isNew && (
-            <>
-              <button
-                className="btn danger-ghost small"
-                onClick={async () => {
-                  const ok = await confirm({
-                    title: "Delete this note?",
-                    message: "You can undo this from Activity.",
-                    confirmLabel: "Delete",
-                    danger: true,
-                  });
-                  if (ok) onDelete();
-                }}
-              >
-                <Trash2 size={13} /> Delete
-              </button>
-              <button
-                className="btn ghost small"
-                disabled={!fits || blank}
-                onClick={() => onPromote(draft)}
-                title={
-                  dirty
-                    ? "Save, then turn this note into a task, a plan step, a decision…"
-                    : "Turn this note into a task, a plan step, a decision…"
-                }
-              >
-                <ArrowUpRight size={13} /> Promote…
-              </button>
-            </>
-          )}
+          <button
+            className="btn danger-ghost small"
+            onClick={async () => {
+              const ok = await confirm({
+                title: "Delete this note?",
+                message: "You can undo this from Activity.",
+                confirmLabel: "Delete",
+                danger: true,
+              });
+              if (ok) onDelete();
+            }}
+          >
+            <Trash2 size={13} /> Delete
+          </button>
+          <button
+            className="btn ghost small"
+            disabled={!fits || blank}
+            onClick={() => onPromote(draft)}
+            title={
+              dirty
+                ? "Save, then turn this note into a task, a plan step, a decision…"
+                : "Turn this note into a task, a plan step, a decision…"
+            }
+          >
+            <ArrowUpRight size={13} /> Promote…
+          </button>
           <span className="spacer" />
-          <span className="faint small note-dialog-meta">
-            {isNew ? `${MOD_KEY}+Enter saves` : `Updated ${relativeTime(note.updatedAt)}`}
-          </span>
+          <span className="faint small note-dialog-meta">Updated {relativeTime(note.updatedAt)}</span>
           <button className="btn ghost" onClick={close}>
             Cancel
           </button>
           <button className="btn primary" onClick={save} disabled={!canSave}>
-            {isNew ? "Pin note" : "Save"}
+            Save
           </button>
         </div>
       </div>

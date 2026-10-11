@@ -1,5 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
+  BookA,
   ExternalLink,
   Kanban,
   Lightbulb,
@@ -27,6 +28,7 @@ import {
   useStore,
 } from "../lib/store";
 import { decisionRef } from "../lib/decisions";
+import { searchTerms } from "../lib/glossary";
 import { collectTags, decisionList, defaultTagColor, hasTag, tagKey, tagOrder } from "../lib/tags";
 import type { Board, Decision, GhIssue, GhLabel, IssueRef, TagRef, Task } from "../lib/types";
 import { colorHex, cx, issueKey, relativeTime } from "../lib/util";
@@ -282,10 +284,11 @@ function tasksWith(boards: Board[], has: (t: Task) => boolean) {
 }
 
 /** "3 tasks, 1 note and 2 decisions", leaving out what is zero (but never saying nothing). */
-function itemCount(c: { tasks: number; decisions: number; notes: number }) {
+function itemCount(c: { tasks: number; decisions: number; notes: number; terms: number }) {
   const parts = [];
-  if (c.tasks || (!c.decisions && !c.notes)) parts.push(`${c.tasks} task${c.tasks === 1 ? "" : "s"}`);
+  if (c.tasks || (!c.decisions && !c.notes && !c.terms)) parts.push(`${c.tasks} task${c.tasks === 1 ? "" : "s"}`);
   if (c.notes) parts.push(`${c.notes} note${c.notes === 1 ? "" : "s"}`);
+  if (c.terms) parts.push(`${c.terms} glossary term${c.terms === 1 ? "" : "s"}`);
   if (c.decisions) parts.push(`${c.decisions} decision${c.decisions === 1 ? "" : "s"}`);
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
 }
@@ -323,12 +326,23 @@ function TagDetail({
     [boards, name],
   );
   const noteTotal = noteGroups.reduce((n, g) => n + g.notes.length, 0);
-  const counts = { tasks: total, decisions: tagged.length, notes: noteTotal };
+  const termGroups = useMemo(
+    () =>
+      boards
+        .map((b) => ({
+          board: b,
+          terms: searchTerms(b.terms ?? [], "").filter((t) => t.tags.some((x) => tagKey(x) === tagKey(name))),
+        }))
+        .filter((g) => g.terms.length),
+    [boards, name],
+  );
+  const termTotal = termGroups.reduce((n, g) => n + g.terms.length, 0);
+  const counts = { tasks: total, decisions: tagged.length, notes: noteTotal, terms: termTotal };
 
   const rename = (to: string) => {
     const n = renameTag(name, to);
     toast(
-      `Renamed tag “${name}” to “${to}”${n.tasks || n.decisions || n.notes ? ` on ${itemCount(n)}` : ""}`,
+      `Renamed tag “${name}” to “${to}”${n.tasks || n.decisions || n.notes || n.terms ? ` on ${itemCount(n)}` : ""}`,
       "success",
     );
     setView({ kind: "tags", tag: { kind: "tag", name: to } });
@@ -368,7 +382,7 @@ function TagDetail({
             { label: "Rename", icon: <Pencil size={14} />, onClick: () => setRenaming(true) },
             "divider",
             {
-              label: tagged.length || noteTotal ? "Remove from everything" : "Remove from all tasks",
+              label: tagged.length || noteTotal || termTotal ? "Remove from everything" : "Remove from all tasks",
               icon: <Trash2 size={14} />,
               danger: true,
               onClick: async () => {
@@ -442,7 +456,26 @@ function TagDetail({
         </div>
       ))}
 
-      {total === 0 && tagged.length === 0 && noteTotal === 0 ? (
+      {termGroups.map((g) => (
+        <div key={g.board.id} className="tags-group">
+          <button className="tags-group-head" onClick={() => setView({ kind: "glossary" })}>
+            <BookA size={14} /> Glossary <span className="faint">{g.terms.length}</span>
+          </button>
+          {g.terms.map((t) => (
+            <div key={t.id} className="tags-task" onClick={() => setView({ kind: "glossary", termId: t.id })}>
+              <BookA size={14} className="faint" />
+              <div className="tags-task-text">
+                <div className="tags-task-title">{t.term}</div>
+                {t.definition.trim() && (
+                  <div className="faint small tags-task-line">{t.definition.split("\n").find((l) => l.trim())}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {total === 0 && tagged.length === 0 && noteTotal === 0 && termTotal === 0 ? (
         <div className="faint pad center">Nothing carries this tag any more.</div>
       ) : (
         groups.map((g) => (

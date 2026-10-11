@@ -6,11 +6,12 @@
 //! looked up again on every call so it follows a switch. It edits the same JSON files the app
 //! uses, and the app's folder watcher picks up the changes live.
 
+use crate::glossary::term_key;
 use crate::history::{self, Actor};
 use crate::plan;
 use crate::vaultfs::{self, new_id, now_iso, slugify};
 use serde_json::{json, Map, Value};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -24,15 +25,21 @@ const PRIORITIES: &[&str] = &["none", "low", "medium", "high", "urgent"];
 const DECISION_LIMIT_DEFAULT: u64 = 500;
 const DECISION_LIMIT_MIN: u64 = 50;
 const DECISION_LIMIT_MAX: u64 = 5000;
+/// Bounds and default of a project's `glossaryCharLimit` (keep in step with `src/lib/glossary.ts`).
+const GLOSSARY_LIMIT_DEFAULT: u64 = 300;
+const GLOSSARY_LIMIT_MIN: u64 = 50;
+const GLOSSARY_LIMIT_MAX: u64 = 5000;
 
 type R<T> = Result<T, String>;
 
-/// Where the vault comes from: named with `--vault`, found in the repository, or open in the app.
+/// Where the vault comes from: named with `--vault`, found in the repository, open in the app,
+/// or made in this session with create_vault.
 #[derive(Clone, Copy, PartialEq)]
 enum Source {
     Flag,
     Repo,
     App,
+    Created,
 }
 
 impl Source {
@@ -41,14 +48,15 @@ impl Source {
             Source::Flag => "set with --vault when the server was registered",
             Source::Repo => "found in the repository the agent runs in",
             Source::App => "the vault open in the Astali app",
+            Source::Created => "created in this session with create_vault",
         }
     }
 }
 
 struct Ctx {
-    /// Fixed for the session with `--vault` or by the repository; `None` follows the app.
-    fixed: Option<PathBuf>,
-    source: Source,
+    /// Fixed with `--vault`, by the repository or by create_vault; `None` follows the app.
+    fixed: RefCell<Option<PathBuf>>,
+    source: Cell<Source>,
     /// The vault of the tool call in progress, so one call never spans two vaults.
     current: RefCell<Option<PathBuf>>,
     /// Client name from `initialize`, and the tool being called, for the history log.
@@ -57,6 +65,16 @@ struct Ctx {
 }
 
 impl Ctx {
+    fn new(fixed: Option<PathBuf>, source: Source) -> Ctx {
+        Ctx {
+            fixed: RefCell::new(fixed),
+            source: Cell::new(source),
+            current: RefCell::new(None),
+            client: RefCell::new(None),
+            tool: RefCell::new(None),
+        }
+    }
+
     fn vault(&self) -> R<PathBuf> {
         if let Some(v) = self.current.borrow().as_ref() {
             return Ok(v.clone());
@@ -65,7 +83,7 @@ impl Ctx {
     }
 
     fn lookup(&self) -> R<PathBuf> {
-        if let Some(v) = &self.fixed {
+        if let Some(v) = self.fixed.borrow().as_ref() {
             return Ok(v.clone());
         }
         match vaultfs::last_vault_from_config() {
@@ -75,7 +93,7 @@ impl Ctx {
                 v.display()
             )),
             None => Err(
-                "No vault is open in the Astali app. Open one there, or register the server with --vault <folder>."
+                "No vault is open in the Astali app. Open one there, make one with create_vault, or register the server with --vault <folder>."
                     .into(),
             ),
         }
@@ -120,13 +138,7 @@ pub fn run(args: &[String]) -> i32 {
             None => (None, Source::App),
         },
     };
-    let ctx = Ctx {
-        fixed,
-        source,
-        current: RefCell::new(None),
-        client: RefCell::new(None),
-        tool: RefCell::new(None),
-    };
+    let ctx = Ctx::new(fixed, source);
     let stdin = io::stdin();
     let mut out = io::stdout();
     for line in stdin.lock().lines() {
@@ -163,14 +175,15 @@ fn handle(ctx: &Ctx, msg: &Value) -> Option<Value> {
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "astali", "title": "Astali Kanban", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": format!(
-                    "Astali is a local kanban app. Vault: {} ({}). Hierarchy: project → boards → columns → tasks. \
+                    "Astali is a local kanban app. Vault: {} ({}). When the user wants a new vault, make it with \
+                     create_vault, which this session then uses. Hierarchy: project → boards → columns → tasks. \
                      Start with list_projects, then get_board to see columns and tasks. Projects, boards and \
                      columns can be referenced by id or by (case-insensitive) name. GitHub issues are read-only: \
                      use sync_issues to refresh the cache, list_issues to browse, add_issue_as_task to put one on a board \
                      (add_issues_as_tasks for many at once). A column created with a `label` is a live view of the \
                      cached issues carrying that GitHub label: get_board lists them as `issues`, and it can't hold tasks. \
                      Task `labels` are the project's own tags, separate from GitHub labels. A column created with `tags` \
-                     is a live view of the board's tasks carrying any (or all) of those tags: get_board lists them as \
+                     is a live view of the board's unfinished tasks (not in the done column) carrying any (or all) of those tags: get_board lists them as \
                      `taggedTasks` (with the column each is in), and it can't hold tasks either; tag a task to show it there. \
                      Tag colors are set per project with update_project `tag_colors`. \
                      Finished tasks can be archived (archive_tasks, restore_task): they leave the board and get_board, which \
@@ -188,6 +201,9 @@ fn handle(ctx: &Ctx, msg: &Value) -> Option<Value> {
                      A board can also be a notes board (`kind: \"notes\"`): post-it notes (title, Markdown description \
                      under the board's noteLimit, tags, linked issues, color) the user arranges freely; get_board lists \
                      them, and create_note / update_note / delete_note change them. \
+                     Every project has a glossary (a board of `kind: \"glossary\"`, made with its first term): the terms, acronyms and names it uses, each with \
+                     a Markdown definition, tags and an optional source. When a word in the project is unclear, search_terms \
+                     for it; add new ones with create_term (update_term / delete_term change them). \
                      Tasks of a project can be linked, on the same board or across boards: one blocks another, or they \
                      relate. get_board shows each task's `blocks`, `blockedBy` and `relatesTo`; change them with \
                      link_tasks / unlink_tasks. A task is finished, and stops blocking others, once it is in its board's \
@@ -195,7 +211,7 @@ fn handle(ctx: &Ctx, msg: &Value) -> Option<Value> {
                      Every change is recorded in the vault's history: list_history shows what changed (by you, the user \
                      or other agents) and undo reverts an entry. Changes appear live in the desktop app.",
                     ctx.vault().map(|v| v.display().to_string()).unwrap_or_else(|_| "none open yet".into()),
-                    ctx.source.describe()
+                    ctx.source.get().describe()
                 ),
             }))
         }
@@ -268,16 +284,33 @@ fn tools() -> Vec<Value> {
     let coord = json!({ "type": "integer", "description": "Position of the note's top-left corner on the board, in pixels (may be negative)" });
 
     vec![
+        tool("create_vault",
+            "Make a folder into a new Astali vault (creating the folder if needed) and use it for the rest of this session. \
+             A folder that already is a vault is used as it is. Inside a git repository, `gitignore: true` keeps the vault's \
+             files out of commits (see set_gitignore); the result's `git` says whether the vault is in one. The user opens \
+             the new vault in the desktop app with \"Open another vault…\" in the vault menu.",
+            json!({ "path": s("Folder for the vault: an absolute path, or relative to the folder the server runs in"),
+                    "name": s("Optional name shown in the app (else the folder's name)"),
+                    "gitignore": { "type": "boolean", "description": "Add the vault's files to the repository's .gitignore (default false)" } }),
+            &["path"], "write"),
+        tool("set_gitignore",
+            "When the vault is inside a git repository, add (enabled: true) or remove a managed block in the repository's \
+             .gitignore listing the vault's files, so they aren't committed with the code. Once added, the block follows \
+             projects as they come and go. Same as the switch in the app's settings.",
+            json!({ "enabled": { "type": "boolean", "description": "true adds the block, false removes it" } }),
+            &["enabled"], "write"),
         tool("list_projects", "List all projects in the vault with board counts and linked GitHub repos.", json!({}), &[], "read"),
         tool("create_project", "Create a project. It starts with one board named 'Main' with To Do / Doing / Done columns.",
             json!({ "name": s("Project name"), "description": s("Optional description"), "color": color,
                     "repos": { "type": "array", "items": { "type": "string" }, "description": "GitHub repos as owner/repo" } }),
             &["name"], "write"),
-        tool("update_project", "Update a project's name, description, color, linked GitHub repos (repos replaces the whole list), tag colors or decision length limit.",
+        tool("update_project", "Update a project's name, description, color, linked GitHub repos (repos replaces the whole list), tag colors, or decision or glossary length limit.",
             json!({ "project": project, "name": s("New name"), "description": s("New description"), "color": color,
                     "repos": { "type": "array", "items": { "type": "string" } },
                     "decision_char_limit": { "type": "integer", "minimum": DECISION_LIMIT_MIN, "maximum": DECISION_LIMIT_MAX,
                         "description": "Most characters a decision's why and rejected alternative may hold together" },
+                    "glossary_char_limit": { "type": "integer", "minimum": GLOSSARY_LIMIT_MIN, "maximum": GLOSSARY_LIMIT_MAX,
+                        "description": "Most characters a glossary term's definition may hold" },
                     "tag_colors": { "type": "object", "additionalProperties": { "type": "string" },
                         "description": format!("Colors of task tags, as {{ tag: color }}: a preset ({}) or a hex color; an empty string resets a tag to its automatic color. Merged into the existing colors.", COLORS.join(", ")) } }),
             &["project"], "write"),
@@ -289,9 +322,9 @@ fn tools() -> Vec<Value> {
             json!({ "project": project, "board": board, "include_descriptions": { "type": "boolean", "description": "Include task descriptions (default true)" },
                     "done_limit": { "type": "integer", "minimum": 0, "description": "Most tasks to list from the done column (default 20, 0 for all)" } }),
             &["project", "board"], "read"),
-        tool("create_board", "Create a board: a kanban board (columns default to To Do / Doing / Done), or with kind \"notes\" a board of post-it notes. Plans are made with create_plan.",
+        tool("create_board", "Create a board: a kanban board (columns default to To Do / Doing / Done), with kind \"notes\" a board of post-it notes, or with kind \"glossary\" the project's glossary (one per project). Plans are made with create_plan.",
             json!({ "project": project, "name": s("Board name"), "description": s("Optional description"),
-                    "kind": { "type": "string", "enum": ["kanban", "notes"], "description": "Default kanban" },
+                    "kind": { "type": "string", "enum": ["kanban", "notes", "glossary"], "description": "Default kanban" },
                     "columns": { "type": "array", "items": { "type": "string" }, "description": "Kanban only: optional custom column names" },
                     "note_limit": note_limit.clone() }),
             &["project", "name"], "write"),
@@ -370,7 +403,8 @@ fn tools() -> Vec<Value> {
             &["project", "board", "task"], "write"),
         tool("create_note",
             "Pin a note on a notes board: a title and a Markdown description that together fit the board's noteLimit \
-             (get_board shows it), plus the project's tags and linked issues. Without x/y it goes below the other notes.",
+             (get_board shows it), plus the project's tags and linked issues; all optional, so a blank note is fine. \
+             Without x/y it goes below the other notes.",
             json!({ "project": project, "board": board, "title": s("Title"), "description": s("Markdown"),
                     "tags": strings("The project's own tags (not GitHub labels)"), "issues": strings("GitHub issues as owner/repo#123 or URLs"),
                     "color": note_color.clone(), "x": coord.clone(), "y": coord.clone() }),
@@ -381,6 +415,27 @@ fn tools() -> Vec<Value> {
                     "color": note_color, "x": coord.clone(), "y": coord }),
             &["project", "board", "note"], "write"),
         tool("delete_note", "Delete a note (can be restored with undo).", json!({ "project": project, "board": board, "note": note }), &["project", "board", "note"], "delete"),
+        tool("search_terms",
+            "Search the project's glossary: the terms, acronyms and names it uses and what they mean. Every word of `query` must \
+             appear in the term, its tags, definition or source; matches on the term come first. Without a query, lists them A–Z.",
+            json!({ "project": project, "query": s("Words to look for (optional)"), "tag": s("Only terms with this tag"),
+                    "limit": { "type": "integer", "minimum": 1, "description": "Default 20" } }),
+            &["project"], "read"),
+        tool("create_term",
+            "Add a term to the project's glossary (made with the first term). No two terms may be the same, ignoring case \
+             and accents, and the definition must fit the project's glossaryCharLimit (see list_projects; 300 unless changed).",
+            json!({ "project": project, "term": s("The term, acronym or name"), "definition": s("What it means (markdown)"),
+                    "tags": strings("The project's own tags"), "source": s("Where the definition comes from: a URL or any text, e.g. a book and page"),
+                    "board": s("The glossary, id or name (optional: the project has one)") }),
+            &["project", "term"], "write"),
+        tool("update_term", "Change a glossary term. Only provided fields change; tags replace the whole list.",
+            json!({ "project": project, "term": s("Term id, or the term itself"), "rename": s("New spelling of the term"),
+                    "definition": s("Markdown"), "tags": strings("The project's own tags"), "source": s("URL or text; empty string to clear"),
+                    "board": s("The glossary, id or name (optional)") }),
+            &["project", "term"], "write"),
+        tool("delete_term", "Delete a glossary term (can be restored with undo).",
+            json!({ "project": project, "term": s("Term id, or the term itself"), "board": s("The glossary, id or name (optional)") }),
+            &["project", "term"], "delete"),
         tool("search_tasks", "Search tasks across boards (and optionally projects) by text, tag, priority or column name, archived ones included (marked `archived`; column \"Archived\" finds only those). `count` is how many match; only the first `limit` are listed.",
             json!({ "project": s("Limit to one project (optional)"), "query": s("Text matched against title and description"),
                     "label": s("Task tag to match (case-insensitive)"), "priority": priority, "column": s("Column name to match"),
@@ -741,6 +796,10 @@ fn is_notes(b: &Value) -> bool {
     b["kind"] == "notes"
 }
 
+fn is_glossary(b: &Value) -> bool {
+    b["kind"] == "glossary"
+}
+
 /// Refuses plan and notes boards where only kanban boards make sense.
 fn kanban(b: &Value) -> R<()> {
     if is_notes(b) {
@@ -751,6 +810,12 @@ fn kanban(b: &Value) -> R<()> {
     }
     if is_plan(b) {
         return Err(format!("'{}' is a plan board: it has steps and checklist items, not columns and tasks. Use get_plan and the plan tools.", s(b, "name")));
+    }
+    if is_glossary(b) {
+        return Err(format!(
+            "'{}' is a glossary: it holds terms and their definitions, not columns and tasks. Read it with get_board.",
+            s(b, "name")
+        ));
     }
     Ok(())
 }
@@ -1022,6 +1087,11 @@ fn save_project(ctx: &Ctx, p: &mut Proj) -> R<()> {
 }
 
 fn board_summary(b: &Value) -> Value {
+    if is_glossary(b) {
+        let n = b["terms"].as_array().map(Vec::len).unwrap_or(0);
+        return json!({ "id": b["id"], "name": b["name"], "kind": "glossary", "description": b["description"], "terms": n,
+                       "updatedAt": b["updatedAt"] });
+    }
     if is_notes(b) {
         let n = b["notes"].as_array().map(Vec::len).unwrap_or(0);
         return json!({ "id": b["id"], "name": b["name"], "kind": "notes", "description": b["description"], "notes": n,
@@ -1358,6 +1428,28 @@ fn decision_limit(p: &Proj) -> u64 {
         .unwrap_or(DECISION_LIMIT_DEFAULT)
 }
 
+/// The project's limit on a glossary term's definition, in characters.
+fn glossary_limit(p: &Proj) -> u64 {
+    p.data["glossaryCharLimit"]
+        .as_u64()
+        .filter(|n| (GLOSSARY_LIMIT_MIN..=GLOSSARY_LIMIT_MAX).contains(n))
+        .unwrap_or(GLOSSARY_LIMIT_DEFAULT)
+}
+
+/// Refuses a definition over the project's limit; one already over it (`before`) may stay but not grow.
+fn definition_fits(p: &Proj, definition: &str, before: Option<&str>) -> R<()> {
+    let (len, limit) = (definition.chars().count() as u64, glossary_limit(p));
+    let room = limit.max(before.map_or(0, |b| b.chars().count() as u64));
+    if len > room {
+        return Err(format!(
+            "The definition is {len} characters; this project allows {limit}. Keep it to what the term means here \
+             (shorten it by {}), and put a link to the long version in `source`.",
+            len - room
+        ));
+    }
+    Ok(())
+}
+
 fn decision_len(d: &Value) -> u64 {
     (s(d, "why").chars().count() + s(d, "rejected").chars().count()) as u64
 }
@@ -1474,6 +1566,8 @@ fn plan_board(p: &Proj, q: &str) -> R<BoardFile> {
     if !is_plan(&b.data) {
         let what = if is_notes(&b.data) {
             "a notes board"
+        } else if is_glossary(&b.data) {
+            "a glossary"
         } else {
             "a kanban board"
         };
@@ -1728,6 +1822,138 @@ fn notes_view(b: &Value) -> Value {
     json!({ "id": b["id"], "name": b["name"], "kind": "notes", "description": b["description"], "noteLimit": b["noteLimit"], "notes": notes })
 }
 
+// ------------------------------------------------------------------------------- glossary
+
+/// The glossary to work on: `board` when given (it must be a glossary), else the project's one.
+fn glossary_board(p: &Proj, board: Option<&str>) -> R<BoardFile> {
+    if let Some(q) = board.filter(|q| !q.trim().is_empty()) {
+        let b = find_board(p, q)?;
+        if !is_glossary(&b.data) {
+            return Err(format!(
+                "'{}' is not a glossary; leave out `board` to use the project's glossary",
+                s(&b.data, "name")
+            ));
+        }
+        return Ok(b);
+    }
+    load_boards(p)?
+        .into_iter()
+        .find(|b| is_glossary(&b.data))
+        .ok_or_else(|| {
+            format!(
+                "Project '{}' has no glossary yet; create_term makes it with its first term",
+                s(&p.data, "name")
+            )
+        })
+}
+
+/// A new, empty glossary board for `p`.
+fn new_glossary() -> Value {
+    let mut board = new_board("Glossary", "", None);
+    board["kind"] = json!("glossary");
+    board["columns"] = json!([]);
+    board["terms"] = json!([]);
+    board
+}
+
+/// Writes a new board file and adds it to the project's board order.
+fn add_board(ctx: &Ctx, p: &mut Proj, board: &Value) -> R<BoardFile> {
+    let path = boards_dir(p).join(format!("{}-{}.json", slugify(&s(board, "name")), s(board, "id")));
+    ctx.write_json(&path, board)?;
+    if let Some(order) = p.data["boardOrder"].as_array_mut() {
+        order.push(board["id"].clone());
+    } else {
+        p.data["boardOrder"] = json!([board["id"]]);
+    }
+    save_project(ctx, p)?;
+    Ok(BoardFile {
+        path,
+        data: board.clone(),
+    })
+}
+
+fn terms_mut(b: &mut Value) -> &mut Vec<Value> {
+    if !b["terms"].is_array() {
+        b["terms"] = json!([]);
+    }
+    b["terms"].as_array_mut().unwrap()
+}
+
+/// A term by id, or by the term itself (ignoring case and accents).
+fn find_term(b: &Value, q: &str) -> R<usize> {
+    let terms = b["terms"].as_array().cloned().unwrap_or_default();
+    terms
+        .iter()
+        .position(|t| s(t, "id") == q)
+        .or_else(|| terms.iter().position(|t| term_key(&s(t, "term")) == term_key(q)))
+        .ok_or_else(|| format!("Term '{q}' not found in '{}'. search_terms finds terms.", s(b, "name")))
+}
+
+/// Refuses a term that another entry of the glossary (other than `except`) already has.
+fn term_free(b: &Value, term: &str, except: Option<&str>) -> R<()> {
+    if term.trim().is_empty() {
+        return Err("The term can't be empty".into());
+    }
+    let taken = b["terms"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|t| Some(s(t, "id").as_str()) != except && term_key(&s(t, "term")) == term_key(term));
+    match taken {
+        Some(t) => Err(format!(
+            "'{}' is already in the glossary (id {}); change that entry with update_term",
+            s(t, "term"),
+            s(t, "id")
+        )),
+        None => Ok(()),
+    }
+}
+
+/// How well a term matches every word of a query (0 = it doesn't): the term counts most, then its
+/// tags, then its definition and source; the whole term typed in full comes first. Same as the app.
+fn term_score(t: &Value, tokens: &[String]) -> u32 {
+    let term = term_key(&s(t, "term"));
+    let tags = term_key(&str_list(&t["tags"]).join(" "));
+    let rest = term_key(&format!("{} {}", s(t, "definition"), s(t, "source")));
+    let mut score = 0;
+    for tok in tokens {
+        if term.contains(tok.as_str()) {
+            score += 3;
+        } else if tags.contains(tok.as_str()) {
+            score += 2;
+        } else if rest.contains(tok.as_str()) {
+            score += 1;
+        } else {
+            return 0;
+        }
+    }
+    if term == tokens.join(" ") {
+        score + 10
+    } else {
+        score
+    }
+}
+
+fn term_view(t: &Value) -> Value {
+    let mut v = json!({ "id": t["id"], "term": t["term"], "definition": t["definition"], "tags": t["tags"] });
+    if !s(t, "source").trim().is_empty() {
+        v["source"] = t["source"].clone();
+    }
+    v
+}
+
+fn by_term(a: &Value, b: &Value) -> std::cmp::Ordering {
+    term_key(&s(a, "term")).cmp(&term_key(&s(b, "term")))
+}
+
+/// A glossary's terms, A–Z.
+fn glossary_view(b: &Value) -> Value {
+    let mut terms = b["terms"].as_array().cloned().unwrap_or_default();
+    terms.sort_by(by_term);
+    json!({ "id": b["id"], "name": b["name"], "kind": "glossary", "description": b["description"],
+            "terms": terms.iter().map(term_view).collect::<Vec<_>>() })
+}
+
 fn issue_cache_path(p: &Proj) -> PathBuf {
     p.path.parent().unwrap().join(".cache").join("github-issues.json")
 }
@@ -1789,8 +2015,53 @@ fn filter_issues(cache: &Value, a: &Value) -> Vec<(String, Value)> {
     out
 }
 
+/// Whether the vault is in a git repository, and whether its files are kept out of it.
+fn git_view(vault: &std::path::Path) -> Value {
+    match crate::gitignore::status(vault) {
+        Some(st) => json!({ "repoRoot": st.repo_root, "gitignore": st.enabled }),
+        None => Value::Null,
+    }
+}
+
 fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
     match name {
+        "create_vault" => {
+            let path = PathBuf::from(req_str(a, "path")?.trim());
+            let path = if path.is_absolute() {
+                path
+            } else {
+                std::env::current_dir().map_err(|e| e.to_string())?.join(path)
+            };
+            if path.exists() && !path.is_dir() {
+                return Err(format!("Not a folder: {}", path.display()));
+            }
+            let created = vaultfs::ensure_vault(&path, arg_str(a, "name"))?;
+            if a.get("gitignore").and_then(Value::as_bool) == Some(true) {
+                crate::gitignore::enable(&path)?;
+            }
+            *ctx.fixed.borrow_mut() = Some(path.clone());
+            ctx.source.set(Source::Created);
+            let name = vaultfs::read_json(&path.join(".astali").join("vault.json"))
+                .ok()
+                .and_then(|m| m["name"].as_str().map(str::to_string));
+            Ok(
+                json!({ "vault": path.to_string_lossy(), "vaultName": name, "created": created, "git": git_view(&path),
+                       "note": "This session now uses this vault. Create a project in it with create_project." }),
+            )
+        }
+        "set_gitignore" => {
+            let vault = ctx.vault()?;
+            let st = if a
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .ok_or("enabled must be true or false")?
+            {
+                crate::gitignore::enable(&vault)?
+            } else {
+                crate::gitignore::disable(&vault)?
+            };
+            Ok(json!({ "gitignore": st.gitignore_path, "enabled": st.enabled, "entries": st.entries }))
+        }
         "list_projects" => {
             let mut out = vec![];
             for p in load_projects(ctx)? {
@@ -1800,6 +2071,7 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                     "color": p.data["color"], "repos": p.data["repos"], "tagColors": p.data.get("tagColors").cloned().unwrap_or(json!({})),
                     "boards": boards.iter().map(|b| json!({ "id": b.data["id"], "name": b.data["name"] })).collect::<Vec<_>>(),
                     "decisions": load_decisions(&p)?.len(), "decisionCharLimit": decision_limit(&p),
+                    "glossaryCharLimit": glossary_limit(&p),
                 }));
             }
             let vault = ctx.vault()?;
@@ -1808,7 +2080,8 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 .ok()
                 .and_then(|m| m["name"].as_str().map(str::to_string));
             Ok(
-                json!({ "vault": vault.to_string_lossy(), "vaultName": name, "vaultSource": ctx.source.describe(), "projects": out }),
+                json!({ "vault": vault.to_string_lossy(), "vaultName": name, "vaultSource": ctx.source.get().describe(),
+                       "git": git_view(&vault), "projects": out }),
             )
         }
         "create_project" => {
@@ -1880,6 +2153,19 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                     }
                 }
             }
+            if let Some(l) = a.get("glossary_char_limit").filter(|l| !l.is_null()) {
+                match l
+                    .as_u64()
+                    .filter(|n| (GLOSSARY_LIMIT_MIN..=GLOSSARY_LIMIT_MAX).contains(n))
+                {
+                    Some(n) => p.data["glossaryCharLimit"] = json!(n),
+                    None => {
+                        return Err(format!(
+                        "glossary_char_limit must be a whole number from {GLOSSARY_LIMIT_MIN} to {GLOSSARY_LIMIT_MAX}"
+                    ))
+                    }
+                }
+            }
             if let Some(tc) = a.get("tag_colors").and_then(Value::as_object) {
                 if !p.data["tagColors"].is_object() {
                     p.data["tagColors"] = json!({});
@@ -1928,6 +2214,9 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             if is_notes(&b.data) {
                 return Ok(notes_view(&b.data));
             }
+            if is_glossary(&b.data) {
+                return Ok(glossary_view(&b.data));
+            }
             let with_desc = a.get("include_descriptions").and_then(Value::as_bool).unwrap_or(true);
             let done_limit = match a.get("done_limit").and_then(Value::as_u64).unwrap_or(DONE_LIMIT) {
                 0 => usize::MAX,
@@ -1941,7 +2230,8 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let done = done_column(&b.data);
             let columns: Vec<Value> = all_cols.iter().map(|c| {
                 if let Some(src) = tag_source(c) {
-                    let ts: Vec<Value> = all_cols.iter().filter(|h| !view_column(h)).flat_map(|h| {
+                    // Finished tasks (in the done column) drop out of the view, as in the app's taggedTaskIds.
+                    let ts: Vec<Value> = all_cols.iter().filter(|h| !view_column(h) && done.as_deref() != h["id"].as_str()).flat_map(|h| {
                         str_list(&h["taskIds"]).into_iter().filter_map(|id| tasks.get(&id)).filter(|t| has_tags(t, src))
                             .map(|t| { let mut v = task_view(&all, &targets, &b.data, t, with_desc); v["column"] = h["name"].clone(); v }).collect::<Vec<_>>()
                     }).collect();
@@ -1989,20 +2279,25 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                     board["notes"] = json!([]);
                     board["noteLimit"] = json!(arg_note_limit(a)?.unwrap_or(NOTE_LIMIT_DEFAULT));
                 }
+                "glossary" => {
+                    if let Some(g) = load_boards(&p)?.iter().find(|b| is_glossary(&b.data)) {
+                        return Err(format!(
+                            "This project already has a glossary, '{}'; a project has one glossary. Add terms to it with create_term.",
+                            s(&g.data, "name")
+                        ));
+                    }
+                    let description = board["description"].clone();
+                    board = new_glossary();
+                    board["name"] = json!(name);
+                    board["description"] = description;
+                }
                 k => {
                     return Err(format!(
-                        "Unknown board kind '{k}'. Use \"kanban\" or \"notes\" (plans are made with create_plan)."
+                        "Unknown board kind '{k}'. Use \"kanban\", \"notes\" or \"glossary\" (plans are made with create_plan)."
                     ))
                 }
             }
-            let path = boards_dir(&p).join(format!("{}-{}.json", slugify(name), s(&board, "id")));
-            ctx.write_json(&path, &board)?;
-            if let Some(order) = p.data["boardOrder"].as_array_mut() {
-                order.push(board["id"].clone());
-            } else {
-                p.data["boardOrder"] = json!([board["id"]]);
-            }
-            save_project(ctx, &mut p)?;
+            add_board(ctx, &mut p, &board)?;
             Ok(json!({ "created": board_summary(&board) }))
         }
         "update_board" => {
@@ -2498,9 +2793,6 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                                    "color": arg_note_color(a)?.unwrap_or(Value::Null),
                                    "x": a.get("x").and_then(Value::as_i64).unwrap_or(40), "y": a.get("y").and_then(Value::as_i64).unwrap_or(below),
                                    "createdAt": t, "updatedAt": t });
-            if s(&note, "title").is_empty() && s(&note, "description").trim().is_empty() {
-                return Err("A note needs a title or a description".into());
-            }
             note_fits(&b.data, &note, None)?;
             notes_mut(&mut b.data).push(note.clone());
             note["length"] = json!(note_length(&note));
@@ -2551,6 +2843,85 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let n = notes_mut(&mut b.data).remove(i);
             save_board(ctx, &mut b)?;
             Ok(json!(format!("Deleted {}", crate::notes::note_name(&n))))
+        }
+        "search_terms" => {
+            let p = find_project(ctx, req_str(a, "project")?)?;
+            // No glossary yet is an empty one.
+            let Some(b) = load_boards(&p)?.into_iter().find(|b| is_glossary(&b.data)) else {
+                return Ok(json!({ "glossary": null, "total": 0, "shown": 0, "terms": [] }));
+            };
+            let tokens: Vec<String> = term_key(arg_str(a, "query").unwrap_or(""))
+                .split_whitespace()
+                .map(String::from)
+                .collect();
+            let tag = arg_str(a, "tag").map(str::trim).filter(|t| !t.is_empty());
+            let limit = a.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+            let mut hits: Vec<(u32, Value)> = b.data["terms"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|t| tag.is_none_or(|g| str_list(&t["tags"]).iter().any(|x| eq_ci(x, g))))
+                .map(|t| (if tokens.is_empty() { 1 } else { term_score(&t, &tokens) }, t))
+                .filter(|(score, _)| *score > 0)
+                .collect();
+            hits.sort_by(|(sa, a), (sb, b)| sb.cmp(sa).then_with(|| by_term(a, b)));
+            let total = hits.len();
+            let out: Vec<Value> = hits.iter().take(limit).map(|(_, t)| term_view(t)).collect();
+            Ok(json!({ "glossary": b.data["name"], "total": total, "shown": out.len(), "terms": out }))
+        }
+        "create_term" => {
+            let mut p = find_project(ctx, req_str(a, "project")?)?;
+            let term = req_str(a, "term")?.trim().replace('\n', " ");
+            definition_fits(&p, arg_str(a, "definition").unwrap_or("").trim(), None)?;
+            let has_glossary = load_boards(&p)?.iter().any(|b| is_glossary(&b.data));
+            // The app shows the glossary even before it has a file, so the first term makes it.
+            let mut b = if has_glossary || arg_str(a, "board").is_some_and(|q| !q.trim().is_empty()) {
+                glossary_board(&p, arg_str(a, "board"))?
+            } else {
+                add_board(ctx, &mut p, &new_glossary())?
+            };
+            term_free(&b.data, &term, None)?;
+            let t = now_iso();
+            let entry = json!({ "id": new_id(), "term": term, "definition": arg_str(a, "definition").unwrap_or("").trim(),
+                                "tags": a.get("tags").map(clean_tags).unwrap_or_default(),
+                                "source": arg_str(a, "source").unwrap_or("").trim(), "createdAt": t, "updatedAt": t });
+            terms_mut(&mut b.data).push(entry.clone());
+            save_board(ctx, &mut b)?;
+            Ok(json!({ "created": term_view(&entry) }))
+        }
+        "update_term" => {
+            let p = find_project(ctx, req_str(a, "project")?)?;
+            let mut b = glossary_board(&p, arg_str(a, "board"))?;
+            let i = find_term(&b.data, req_str(a, "term")?)?;
+            let mut t = b.data["terms"][i].clone();
+            if let Some(v) = arg_str(a, "rename") {
+                let v = v.trim().replace('\n', " ");
+                term_free(&b.data, &v, Some(&s(&t, "id")))?;
+                t["term"] = json!(v);
+            }
+            if let Some(v) = arg_str(a, "definition") {
+                definition_fits(&p, v.trim(), Some(&s(&t, "definition")))?;
+                t["definition"] = json!(v.trim());
+            }
+            if let Some(v) = a.get("tags").filter(|v| v.is_array()) {
+                t["tags"] = json!(clean_tags(v));
+            }
+            if let Some(v) = arg_str(a, "source") {
+                t["source"] = json!(v.trim());
+            }
+            t["updatedAt"] = json!(now_iso());
+            terms_mut(&mut b.data)[i] = t.clone();
+            save_board(ctx, &mut b)?;
+            Ok(json!({ "updated": term_view(&t) }))
+        }
+        "delete_term" => {
+            let p = find_project(ctx, req_str(a, "project")?)?;
+            let mut b = glossary_board(&p, arg_str(a, "board"))?;
+            let i = find_term(&b.data, req_str(a, "term")?)?;
+            let t = terms_mut(&mut b.data).remove(i);
+            save_board(ctx, &mut b)?;
+            Ok(json!(format!("Deleted {}", crate::glossary::term_name(&t))))
         }
         "search_tasks" => {
             let projects = match arg_str(a, "project").filter(|p| !p.is_empty()) {
@@ -3181,7 +3552,6 @@ mod tests {
         call_tool, decision_score, done_column, parse_color, prune_links, task_links, unlink_pair, Ctx, Source,
     };
     use serde_json::json;
-    use std::cell::RefCell;
 
     #[test]
     fn decision_search_needs_every_word_and_ranks_code_references_first() {
@@ -3251,13 +3621,7 @@ mod tests {
             boards.join("two.json"),
             json!({ "id": "two", "name": "Two", "columns": [{ "id": "c2", "name": "Later", "taskIds": [] }], "tasks": {} }),
         );
-        let ctx = Ctx {
-            fixed: Some(vault.clone()),
-            source: Source::Flag,
-            current: RefCell::new(None),
-            client: RefCell::new(None),
-            tool: RefCell::new(None),
-        };
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
 
         call_tool(
             &ctx,
@@ -3291,6 +3655,82 @@ mod tests {
     }
 
     #[test]
+    fn a_glossary_is_one_per_project_with_unique_terms() {
+        let vault = std::env::temp_dir().join(format!("astali-glossary-test-{}", super::new_id()));
+        std::fs::create_dir_all(vault.join("p").join("boards")).unwrap();
+        std::fs::write(
+            vault.join("p").join("project.json"),
+            json!({ "id": "p", "name": "P", "boardOrder": [] }).to_string(),
+        )
+        .unwrap();
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args);
+
+        assert_eq!(call("search_terms", json!({ "project": "P" })).unwrap()["total"], 0);
+        assert!(call("delete_term", json!({ "project": "P", "term": "MCP" })).is_err());
+
+        // The first term makes the glossary, and a project keeps a single one.
+        call(
+            "create_term",
+            json!({ "project": "P", "term": "MCP", "definition": "Model Context Protocol", "tags": ["ai"] }),
+        )
+        .unwrap();
+        assert!(call(
+            "create_board",
+            json!({ "project": "P", "name": "Words", "kind": "glossary" })
+        )
+        .is_err());
+        call(
+            "create_term",
+            json!({ "project": "P", "term": "Café", "definition": "Where the protocol was drafted",
+                    "source": "https://example.com" }),
+        )
+        .unwrap();
+        // A definition is a few lines, not an encyclopedia entry.
+        let long = "x".repeat(301);
+        assert!(call(
+            "create_term",
+            json!({ "project": "P", "term": "Long", "definition": long })
+        )
+        .is_err());
+        assert!(call(
+            "update_term",
+            json!({ "project": "P", "term": "MCP", "definition": long })
+        )
+        .is_err());
+        // Case and accents don't make a new term.
+        assert!(call("create_term", json!({ "project": "P", "term": "mcp" })).is_err());
+        assert!(call(
+            "update_term",
+            json!({ "project": "P", "term": "cafe", "rename": "MCP" })
+        )
+        .is_err());
+
+        let found = call("search_terms", json!({ "project": "P", "query": "protocol" })).unwrap();
+        assert_eq!(found["total"], 2);
+        let found = call("search_terms", json!({ "project": "P", "query": "mcp" })).unwrap();
+        assert_eq!(found["terms"][0]["term"], "MCP");
+        assert_eq!(found["total"], 1);
+
+        let board = call("get_board", json!({ "project": "P", "board": "Glossary" })).unwrap();
+        assert_eq!(board["kind"], "glossary");
+        assert_eq!(board["terms"][0]["term"], "Café");
+        assert!(call(
+            "create_task",
+            json!({ "project": "P", "board": "Glossary", "title": "x" })
+        )
+        .is_err());
+
+        call("delete_term", json!({ "project": "P", "term": "MCP" })).unwrap();
+        let history = call("list_history", json!({ "limit": 1 })).unwrap();
+        assert_eq!(history["entries"][0]["headline"], "Deleted term “MCP”");
+        call("undo", json!({ "id": history["entries"][0]["id"].as_str().unwrap() })).unwrap();
+        let found = call("search_terms", json!({ "project": "P" })).unwrap();
+        assert_eq!(found["total"], 2);
+        std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
     fn done_column_is_the_picked_one_else_the_last_holding_tasks() {
         let tag = json!({ "kind": "tags", "tags": ["x"], "match": "any" });
         let mut b = json!({ "columns": [{ "id": "todo", "source": null }, { "id": "done", "source": null }, { "id": "view", "source": tag }] });
@@ -3319,13 +3759,7 @@ mod tests {
             json!({ "id": "one", "name": "One", "tasks": {},
             "columns": [{ "id": "todo", "name": "To do", "taskIds": [] }, { "id": "done", "name": "Done", "taskIds": [] }] }),
         );
-        let ctx = Ctx {
-            fixed: Some(vault.clone()),
-            source: Source::Flag,
-            current: RefCell::new(None),
-            client: RefCell::new(None),
-            tool: RefCell::new(None),
-        };
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
         let read = || {
             serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(boards.join("one.json")).unwrap())
                 .unwrap()
@@ -3383,13 +3817,7 @@ mod tests {
             "tasks": { "a": { "id": "a", "title": "Open", "links": [{ "type": "relates", "board": "one", "task": "b" }] },
                        "b": { "id": "b", "title": "Shipped", "description": "the parser" }, "c": { "id": "c", "title": "Also shipped" } } }),
         );
-        let ctx = Ctx {
-            fixed: Some(vault.clone()),
-            source: Source::Flag,
-            current: RefCell::new(None),
-            client: RefCell::new(None),
-            tool: RefCell::new(None),
-        };
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
         let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args).unwrap();
         let read = || {
             serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(boards.join("one.json")).unwrap())
@@ -3517,5 +3945,49 @@ mod tests {
         assert_eq!(parse_color("purple"), None);
         assert_eq!(parse_color("#12345"), None);
         assert_eq!(parse_color("#ggg"), None);
+    }
+
+    #[test]
+    fn create_vault_switches_the_session_and_can_keep_it_out_of_git() {
+        let repo = std::env::temp_dir().join(format!("astali-create-vault-test-{}", super::new_id()));
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+        let ctx = Ctx::new(None, Source::App);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args);
+        let kb = repo.join("docs").join("kb");
+
+        let r = call(
+            "create_vault",
+            json!({ "path": kb.to_string_lossy(), "name": "Thesis", "gitignore": true }),
+        )
+        .unwrap();
+        assert_eq!(
+            (r["created"].clone(), r["vaultName"].clone()),
+            (json!(true), json!("Thesis"))
+        );
+        assert_eq!(r["git"]["gitignore"], true);
+        assert!(super::vaultfs::is_vault(&kb));
+
+        // Later calls work in the new vault, and the .gitignore block follows its projects.
+        call("create_project", json!({ "name": "Exams" })).unwrap();
+        assert!(kb.join("exams").join("project.json").is_file());
+        let ignore = std::fs::read_to_string(repo.join(".gitignore")).unwrap();
+        assert!(ignore.starts_with("target/\n") && ignore.contains("/docs/kb/exams/"));
+        let list = call("list_projects", json!({})).unwrap();
+        assert_eq!(list["vaultSource"], "created in this session with create_vault");
+
+        call("set_gitignore", json!({ "enabled": false })).unwrap();
+        assert_eq!(std::fs::read_to_string(repo.join(".gitignore")).unwrap(), "target/\n");
+        // An existing vault is used as it is.
+        assert_eq!(
+            call("create_vault", json!({ "path": kb.to_string_lossy() })).unwrap()["created"],
+            false
+        );
+        assert!(call(
+            "create_vault",
+            json!({ "path": repo.join(".gitignore").to_string_lossy() })
+        )
+        .is_err());
+        std::fs::remove_dir_all(&repo).ok();
     }
 }

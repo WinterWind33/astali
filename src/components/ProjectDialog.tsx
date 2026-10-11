@@ -1,6 +1,7 @@
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { DECISION_LIMIT_DEFAULT, DECISION_LIMIT_MAX, DECISION_LIMIT_MIN } from "../lib/decisions";
+import { GLOSSARY_LIMIT_DEFAULT, GLOSSARY_LIMIT_MAX, GLOSSARY_LIMIT_MIN } from "../lib/glossary";
 import { createProject, openProject, toast, updateProject } from "../lib/store";
 import type { Color, Project, RepoRef } from "../lib/types";
 import { parseRepo, repoKey } from "../lib/util";
@@ -17,6 +18,10 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
   const [limitInput, setLimitInput] = useState(String(project?.decisionCharLimit ?? DECISION_LIMIT_DEFAULT));
   const limit = /^\d+$/.test(limitInput.trim()) ? Number(limitInput.trim()) : NaN;
   const limitValid = Number.isInteger(limit) && limit >= DECISION_LIMIT_MIN && limit <= DECISION_LIMIT_MAX;
+  const [glossaryInput, setGlossaryInput] = useState(String(project?.glossaryCharLimit ?? GLOSSARY_LIMIT_DEFAULT));
+  const glossaryLimit = /^\d+$/.test(glossaryInput.trim()) ? Number(glossaryInput.trim()) : NaN;
+  const glossaryValid =
+    Number.isInteger(glossaryLimit) && glossaryLimit >= GLOSSARY_LIMIT_MIN && glossaryLimit <= GLOSSARY_LIMIT_MAX;
   const [busy, setBusy] = useState(false);
 
   const addRepo = () => {
@@ -31,7 +36,7 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !limitValid || busy) return;
+    if (!name.trim() || !limitValid || !glossaryValid || busy) return;
     // A repo typed but not "added" is almost certainly meant to be included.
     let finalRepos = repos;
     const pendingRepo = parseRepo(repoInput);
@@ -44,6 +49,7 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
         color,
         repos: finalRepos,
         decisionCharLimit: limit,
+        glossaryCharLimit: glossaryLimit,
       };
       if (project) {
         updateProject(project.id, data);
@@ -137,6 +143,23 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
           {!limitValid && (
             <div className="field-error">
               Enter a whole number from {DECISION_LIMIT_MIN} to {DECISION_LIMIT_MAX} (default {DECISION_LIMIT_DEFAULT}).
+            </div>
+          )}
+        </label>
+        <label className="field">
+          <span>
+            Glossary length limit <em className="faint">— characters for a term's definition</em>
+          </span>
+          <input
+            className="limit-input"
+            inputMode="numeric"
+            value={glossaryInput}
+            onChange={(e) => setGlossaryInput(e.target.value)}
+            onBlur={() => glossaryValid && setGlossaryInput(String(glossaryLimit))}
+          />
+          {!glossaryValid && (
+            <div className="field-error">
+              Enter a whole number from {GLOSSARY_LIMIT_MIN} to {GLOSSARY_LIMIT_MAX} (default {GLOSSARY_LIMIT_DEFAULT}).
             </div>
           )}
         </label>

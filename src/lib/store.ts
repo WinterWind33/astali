@@ -22,6 +22,7 @@ import { decisionFileName, decisionLength, normalizeDecision } from "./decisions
 import { doneColumn, followLabels, isViewColumn } from "./labelColumns";
 import { hasTag, tagColumnName, tagColor, tagKey } from "./tags";
 import { clip, newNote, normalizeNoteLimit, noteLength } from "./notes";
+import { definitionLength, findTerm, isGlossary, normalizeTerm } from "./glossary";
 import { linkTasks, pruneLinks, retargetLinks, unlinkTasks, type LinkKind, type TaskRef } from "./links";
 import type {
   ArchivedTask,
@@ -36,6 +37,7 @@ import type {
   GhIssue,
   GhLabel,
   GitStatus,
+  GlossaryTerm,
   HistoryEntry,
   RepoInfo,
   IssueCache,
@@ -64,6 +66,7 @@ import {
   loadProjects,
   newBoard,
   newColumn,
+  newGlossaryBoard,
   newNotesBoard,
   newPlanBoard,
   normalizeBoard,
@@ -567,6 +570,7 @@ export async function createProject(input: {
   color: Color;
   repos: RepoRef[];
   decisionCharLimit?: number;
+  glossaryCharLimit?: number;
 }) {
   const vault = requireVault();
   const base = slugify(input.name);
@@ -586,7 +590,9 @@ export async function createProject(input: {
 
 export function updateProject(
   id: string,
-  patch: Partial<Pick<Project, "name" | "description" | "color" | "repos" | "tagColors" | "decisionCharLimit">>,
+  patch: Partial<
+    Pick<Project, "name" | "description" | "color" | "repos" | "tagColors" | "decisionCharLimit" | "glossaryCharLimit">
+  >,
 ) {
   patchProject(id, (p) => ({ ...p, ...patch }));
 }
@@ -618,6 +624,7 @@ export interface TagChange {
   tasks: number;
   decisions: number;
   notes: number;
+  terms: number;
 }
 
 /** Rewrites the tags of every note carrying `tag`; returns how many changed. */
@@ -631,6 +638,22 @@ function retagNotes(tag: string, fn: (tags: string[]) => string[]) {
     patchBoard(board.id, (b) => ({
       ...b,
       notes: b.notes!.map((x) => (has(x) ? { ...x, tags: fn(x.tags), updatedAt: now() } : x)),
+    }));
+  }
+  return changed;
+}
+
+/** Rewrites the tags of every glossary term carrying `tag`; returns how many changed. */
+function retagTerms(tag: string, fn: (tags: string[]) => string[]) {
+  let changed = 0;
+  for (const { board } of Object.values(get().boards)) {
+    const has = (t: GlossaryTerm) => t.tags.some((x) => tagKey(x) === tagKey(tag));
+    const n = board.terms?.filter(has).length ?? 0;
+    if (!n) continue;
+    changed += n;
+    patchBoard(board.id, (b) => ({
+      ...b,
+      terms: b.terms!.map((x) => (has(x) ? { ...x, tags: fn(x.tags), updatedAt: now() } : x)),
     }));
   }
   return changed;
@@ -653,13 +676,13 @@ function retagDecisions(tag: string, fn: (tags: string[]) => string[]) {
 }
 
 /**
- * Renames a tag on every task and decision of the current project (merging it into `to` where one has
+ * Renames a tag on every task, note, glossary term and decision of the current project (merging it into `to` where one has
  * both), carrying its color over.
  */
 export function renameTag(from: string, to: string): TagChange {
   const p = currentProject();
   const name = to.trim();
-  if (!p || !name || from === name) return { tasks: 0, decisions: 0, notes: 0 };
+  if (!p || !name || from === name) return { tasks: 0, decisions: 0, notes: 0, terms: 0 };
   let changed = 0;
   for (const { board } of Object.values(get().boards)) {
     const ids = Object.keys(board.tasks).filter((id) => hasTag(board.tasks[id], from));
@@ -703,6 +726,7 @@ export function renameTag(from: string, to: string): TagChange {
   };
   const decisions = retagDecisions(from, retag);
   const notes = retagNotes(from, retag);
+  const terms = retagTerms(from, retag);
   const color = p.project.tagColors[tagKey(from)];
   if (color && tagKey(from) !== tagKey(name)) {
     patchProject(p.project.id, (pr) => {
@@ -712,13 +736,13 @@ export function renameTag(from: string, to: string): TagChange {
       return { ...pr, tagColors };
     });
   }
-  return { tasks: changed, decisions, notes };
+  return { tasks: changed, decisions, notes, terms };
 }
 
-/** Removes a tag from every task and decision of the current project, and forgets its color. */
+/** Removes a tag from every task, note, glossary term and decision of the current project, and forgets its color. */
 export function deleteTag(tag: string): TagChange {
   const p = currentProject();
-  if (!p) return { tasks: 0, decisions: 0, notes: 0 };
+  if (!p) return { tasks: 0, decisions: 0, notes: 0, terms: 0 };
   let changed = 0;
   for (const { board } of Object.values(get().boards)) {
     const ids = Object.keys(board.tasks).filter((id) => hasTag(board.tasks[id], tag));
@@ -738,8 +762,9 @@ export function deleteTag(tag: string): TagChange {
   const drop = (tags: string[]) => tags.filter((t) => tagKey(t) !== tagKey(tag));
   const decisions = retagDecisions(tag, drop);
   const notes = retagNotes(tag, drop);
+  const terms = retagTerms(tag, drop);
   if (p.project.tagColors[tagKey(tag)]) setTagColor(tag, null);
-  return { tasks: changed, decisions, notes };
+  return { tasks: changed, decisions, notes, terms };
 }
 
 export async function deleteProject(id: string) {
@@ -797,7 +822,7 @@ export async function openProject(id: string, view?: ProjectView) {
   // Follows label renames picked up while the project was closed (e.g. by an MCP sync).
   reconcileLabelColumns(issues, issues);
   lastPoll = Date.now();
-  const first = orderedBoards()[0];
+  const first = sidebarBoards()[0];
   set({
     route: {
       name: "project",
@@ -853,6 +878,75 @@ export async function createBoard(name: string, plan?: Plan | "notes") {
 /** Edits a plan board's plan. */
 export function patchPlan(boardId: string, fn: (p: Plan) => Plan) {
   patchBoard(boardId, (b) => (b.plan ? { ...b, plan: fn(b.plan) } : b));
+}
+
+// ---------------------------------------------------------------- glossary
+
+/*
+ * The glossary is a fixed sidebar entry, like Decisions, but stored as a board file (D-13) so it
+ * shares the boards' history and undo. The file is made the first time a term is added.
+ */
+
+/** The project's glossary board, if it has one yet (there is at most one per project). */
+export const glossaryBoard = (s: State = get()) => orderedBoards(s).find(isGlossary);
+
+/** The boards listed in the sidebar: every board but the glossary, which has its own entry. */
+export const sidebarBoards = (s: State = get()) => orderedBoards(s).filter((b) => !isGlossary(b));
+
+/** The glossary board's id, creating an empty one first when the project has none. */
+function ensureGlossary(): string | null {
+  const g = glossaryBoard();
+  if (g) return g.id;
+  const p = currentProject();
+  if (!p) return null;
+  const board = newGlossaryBoard("Glossary");
+  const entry: BoardEntry = { board, file: boardFileName(board) };
+  set((s) => ({ boards: { ...s.boards, [board.id]: entry } }));
+  persistBoard(entry);
+  patchProject(p.project.id, (pr) => ({ ...pr, boardOrder: [...pr.boardOrder, board.id] }));
+  return board.id;
+}
+
+export type TermInput = Pick<GlossaryTerm, "term" | "definition" | "tags" | "source">;
+
+function patchTerms(fn: (terms: GlossaryTerm[]) => GlossaryTerm[]) {
+  const g = glossaryBoard();
+  if (g) patchBoard(g.id, (b) => (b.terms ? { ...b, terms: fn(b.terms) } : b));
+}
+
+/** The project's limit on a definition, in characters. */
+export const glossaryLimit = (s: State = get()) => currentProject(s)?.project.glossaryCharLimit ?? 0;
+
+/**
+ * Adds a term to the glossary (made on first use); returns its id, or null when it is empty, already
+ * there, or its definition is over the project's limit.
+ */
+export function addTerm(input: TermInput): string | null {
+  const term = input.term.trim();
+  if (!term || findTerm(glossaryBoard()?.terms ?? [], term)) return null;
+  if (!decisionFits(definitionLength(input.definition), null, glossaryLimit()) || !ensureGlossary()) return null;
+  const t = normalizeTerm({ ...input, term, id: uid(), createdAt: now(), updatedAt: now() });
+  patchTerms((ts) => [...ts, t]);
+  return t.id;
+}
+
+/**
+ * Edits a term; false (and nothing changes) when the new term is empty, another entry already has it,
+ * or the definition would grow past the project's limit.
+ */
+export function updateTerm(termId: string, patch: Partial<TermInput>): boolean {
+  const terms = glossaryBoard()?.terms;
+  const old = terms?.find((t) => t.id === termId);
+  if (!terms || !old) return false;
+  const next = { ...old, ...patch, term: (patch.term ?? old.term).trim(), updatedAt: now() };
+  if (!next.term || findTerm(terms, next.term, termId)) return false;
+  if (!decisionFits(definitionLength(next.definition), definitionLength(old.definition), glossaryLimit())) return false;
+  patchTerms((ts) => ts.map((t) => (t.id === termId ? next : t)));
+  return true;
+}
+
+export function deleteTerm(termId: string) {
+  patchTerms((ts) => ts.filter((t) => t.id !== termId));
 }
 
 // ---------------------------------------------------------------- notes boards
@@ -928,7 +1022,7 @@ export async function deleteBoard(boardId: string) {
   patchProject(p.project.id, (pr) => ({ ...pr, boardOrder: pr.boardOrder.filter((id) => id !== boardId) }));
   const r = get().route;
   if (r.name === "project" && r.view.kind === "board" && r.view.boardId === boardId) {
-    const first = orderedBoards()[0];
+    const first = sidebarBoards()[0];
     setView(first ? { kind: "board", boardId: first.id } : { kind: "empty" });
   }
   toast(`Deleted board “${entry.board.name}”`);
@@ -1017,6 +1111,43 @@ export function moveColumn(boardId: string, from: number, to: number) {
     columns.splice(to, 0, c);
     return { ...b, columns };
   });
+}
+
+export type TaskSort = "priority" | "name" | "created" | "due";
+
+const PRIORITY_RANK: Record<Task["priority"], number> = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
+const byName = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
+/** Orders tasks: highest priority, A–Z, newest, or soonest due first; tasks without a due date or priority go last. */
+function compareTasks(by: TaskSort): (a: Task, b: Task) => number {
+  switch (by) {
+    case "priority":
+      return (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+    case "name":
+      return (a, b) => byName.compare(a.title, b.title);
+    case "created":
+      return (a, b) => b.createdAt.localeCompare(a.createdAt);
+    case "due":
+      return (a, b) => (a.dueDate ?? "￿").localeCompare(b.dueDate ?? "￿");
+  }
+}
+
+/**
+ * Sorts a column's tasks once; ties keep their order. The column doesn't stay sorted: tasks can be
+ * dragged anywhere afterwards. One write, so one history entry undoes the whole sort.
+ */
+export function sortColumn(boardId: string, columnId: string, by: TaskSort) {
+  const b = get().boards[boardId]?.board;
+  const col = b?.columns.find((c) => c.id === columnId);
+  if (!b || !col || isViewColumn(col)) return;
+  const cmp = compareTasks(by);
+  const ids = col.taskIds.filter((id) => b.tasks[id]);
+  const sorted = [...ids].sort((x, y) => cmp(b.tasks[x], b.tasks[y]));
+  if (sorted.every((id, i) => id === col.taskIds[i]) && sorted.length === col.taskIds.length) return;
+  patchBoard(boardId, (bd) => ({
+    ...bd,
+    columns: bd.columns.map((c) => (c.id === columnId ? { ...c, taskIds: sorted } : c)),
+  }));
 }
 
 // ---------------------------------------------------------------- tasks
@@ -1279,7 +1410,10 @@ export function linkedIssueIndex(boards: Record<string, BoardEntry>) {
 
 export type DecisionInput = Pick<Decision, "title" | "why" | "rejected" | "about" | "tags" | "issues">;
 
-/** Whether text of `length` characters may be saved over text that had `before` (null for a new decision). */
+/**
+ * Whether text of `length` characters may be saved over text that had `before` (null for new text):
+ * the rule for decisions and glossary definitions alike.
+ */
 export function decisionFits(length: number, before: number | null, limit: number) {
   // Text written under a higher limit is kept, but can't grow while it is over the current one.
   return length <= limit || (before != null && length <= before);
@@ -1546,7 +1680,7 @@ export async function refreshFromDisk(changed: string[]) {
     if (missing.length) patchProject(p.project.id, (pr) => ({ ...pr, boardOrder: [...pr.boardOrder, ...missing] }));
     const r = get().route;
     if (r.name === "project" && r.view.kind === "board" && !merged[r.view.boardId]) {
-      const first = orderedBoards()[0];
+      const first = sidebarBoards()[0];
       setView(first ? { kind: "board", boardId: first.id } : { kind: "empty" });
     }
   }

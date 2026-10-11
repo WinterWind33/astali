@@ -1,6 +1,7 @@
 mod gh;
 mod gitignore;
 mod gitrepo;
+mod glossary;
 mod history;
 pub mod mcp;
 mod notes;
@@ -76,7 +77,11 @@ fn path_exists(path: String) -> bool {
 }
 
 fn config_path(app: &tauri::AppHandle) -> CmdResult<PathBuf> {
-    let dir = app.path().app_config_dir().map_err(err)?;
+    // Debug builds can run on their own settings (UI tests, screenshots) instead of the installed app's.
+    let dir = match std::env::var_os("ASTALI_CONFIG_DIR").filter(|_| cfg!(debug_assertions)) {
+        Some(dir) => PathBuf::from(dir),
+        None => app.path().app_config_dir().map_err(err)?,
+    };
     fs::create_dir_all(&dir).map_err(err)?;
     Ok(dir.join("config.json"))
 }
@@ -115,9 +120,13 @@ fn save_github_token(token: String) -> CmdResult<()> {
     secrets::set_github_token(&token)
 }
 
-/// Absolute path of this executable, so the UI can show how to register the MCP server.
+/// Absolute path of this executable, so the UI can show how to register the MCP server. An AppImage
+/// runs from a temporary mount that changes every launch, so it's the AppImage file itself there.
 #[tauri::command]
 fn exe_path() -> CmdResult<String> {
+    if let Some(appimage) = std::env::var_os("APPIMAGE").filter(|_| cfg!(target_os = "linux")) {
+        return Ok(appimage.to_string_lossy().into_owned());
+    }
     std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(err)

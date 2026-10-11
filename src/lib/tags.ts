@@ -1,4 +1,5 @@
 import { hslToHex } from "./color";
+import { doneColumn } from "./labelColumns";
 import type { Board, Color, Column, Decision, Project, Task, TagSource } from "./types";
 import { colorHex } from "./util";
 
@@ -38,10 +39,16 @@ export function matchesTags(t: Task, src: TagSource) {
   return src.match === "all" ? src.tags.every((g) => hasTag(t, g)) : src.tags.some((g) => hasTag(t, g));
 }
 
-/** The board's tasks a tag column shows, in board order (column by column, top to bottom). */
+/**
+ * The board's tasks a tag column shows, in board order (column by column, top to bottom). Finished
+ * ones, in the done column (or archived), are left out.
+ */
 export function taggedTaskIds(board: Board, src: TagSource): string[] {
+  const done = doneColumn(board);
   return board.columns.flatMap((c) =>
-    c.source?.kind === "tags" ? [] : c.taskIds.filter((id) => board.tasks[id] && matchesTags(board.tasks[id], src)),
+    c.source?.kind === "tags" || c === done
+      ? []
+      : c.taskIds.filter((id) => board.tasks[id] && matchesTags(board.tasks[id], src)),
   );
 }
 
@@ -60,8 +67,8 @@ export function describeTagSource(src: TagSource) {
 }
 
 /**
- * Every tag used on these boards (tasks and notes, and decisions, which share the project's tags) with
- * how many tasks, notes and decisions carry it, spelled as first seen; most used first.
+ * Every tag used on these boards (tasks, notes and glossary terms, and decisions, which share the project's
+ * tags) with how many of them carry it, spelled as first seen; most used first.
  */
 export function collectTags(
   boards: Board[],
@@ -78,6 +85,7 @@ export function collectTags(
   for (const b of boards) {
     for (const t of Object.values(b.tasks)) count(t.labels);
     for (const n of b.notes ?? []) count(n.tags);
+    for (const t of b.terms ?? []) count(t.tags);
   }
   for (const d of decisions) count(d.tags);
   return [...byKey.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));

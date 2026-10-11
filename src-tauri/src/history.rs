@@ -562,10 +562,16 @@ fn place(p: Option<&(String, String, usize)>) -> Value {
 
 // ------------------------------------------------------------------------------- compact lists
 
-/// Lists of a board change stored by reference: a notes board's `notes`, a plan's steps and questions.
+/// Lists of a board change stored by reference: a notes board's `notes`, a glossary's `terms`, a plan's
+/// steps and questions.
 /// An element the change left alone is kept in `before` and `after` as its bare id, so editing one
 /// note of hundreds logs that note, not all of them. Order is kept, so reordering is still undone.
-const LISTS: &[(&str, Option<&str>)] = &[("notes", None), ("plan", Some("steps")), ("plan", Some("questions"))];
+const LISTS: &[(&str, Option<&str>)] = &[
+    ("notes", None),
+    ("terms", None),
+    ("plan", Some("steps")),
+    ("plan", Some("questions")),
+];
 
 fn list_mut<'a>(v: &'a mut Value, sub: Option<&str>) -> Option<&'a mut Vec<Value>> {
     match sub {
@@ -790,6 +796,8 @@ fn set_board_summary(c: &mut Value) {
         c["summary"] = json!(crate::plan::summary(&c["before"]["plan"], &c["after"]["plan"]));
     } else if crate::notes::covers(&c["after"]) {
         c["summary"] = json!(crate::notes::summary(&c["before"], &c["after"]));
+    } else if crate::glossary::covers(&c["after"]) {
+        c["summary"] = json!(crate::glossary::summary(&c["before"], &c["after"]));
     } else if let Some(o) = c.as_object_mut() {
         o.remove("summary");
     }
@@ -810,6 +818,7 @@ fn field_label(k: &str) -> &str {
         "source" => "source",
         "tagColors" => "tag colors",
         "decisionCharLimit" => "decision length limit",
+        "glossaryCharLimit" => "glossary length limit",
         "rejected" => "rejected alternative",
         "about" => "code references",
         "issues" => "linked issues",
@@ -853,12 +862,21 @@ pub fn describe(c: &Value) -> String {
         "project.update" => describe_update("project ", "name", &c["name"], c),
         "board.create" if c["board"]["kind"] == "plan" => format!("Created plan {}", q(&c["board"]["name"])),
         "board.create" if c["board"]["kind"] == "notes" => format!("Created notes board {}", q(&c["board"]["name"])),
+        "board.create" if c["board"]["kind"] == "glossary" => format!("Created glossary {}", q(&c["board"]["name"])),
         "board.create" => format!("Created board {}", q(&c["board"]["name"])),
         "board.delete" if c["board"]["kind"] == "plan" => format!("Deleted plan {}", q(&c["board"]["name"])),
         "board.delete" if c["board"]["kind"] == "notes" => {
             let n = c["board"]["notes"].as_array().map(Vec::len).unwrap_or(0);
             format!(
                 "Deleted notes board {} ({n} note{})",
+                q(&c["board"]["name"]),
+                if n == 1 { "" } else { "s" }
+            )
+        }
+        "board.delete" if c["board"]["kind"] == "glossary" => {
+            let n = c["board"]["terms"].as_array().map(Vec::len).unwrap_or(0);
+            format!(
+                "Deleted glossary {} ({n} term{})",
                 q(&c["board"]["name"]),
                 if n == 1 { "" } else { "s" }
             )
@@ -879,6 +897,7 @@ pub fn describe(c: &Value) -> String {
             s(c, "summary")
         }
         "board.update" if crate::notes::covers(&c["after"]) => s(c, "summary"),
+        "board.update" if crate::glossary::covers(&c["after"]) => s(c, "summary"),
         "board.update" => describe_update("board ", "name", &c["name"], c),
         "decision.create" => format!(
             "Recorded decision {}",
@@ -960,6 +979,14 @@ pub fn headline(e: &Value) -> String {
                     }
                     "task.create" => return format!("Added {n} tasks"),
                     "task.delete" => return format!("Deleted {n} tasks"),
+                    // A column sorted, or tasks reordered in it.
+                    "task.move"
+                        if cs.iter().all(|c| {
+                            c["from"]["column"] == cs[0]["to"]["column"] && c["to"]["column"] == cs[0]["to"]["column"]
+                        }) =>
+                    {
+                        return format!("Reordered {n} tasks in {}", q(&cs[0]["to"]["name"]))
+                    }
                     "task.move" if cs.iter().all(|c| c["to"]["column"] == cs[0]["to"]["column"]) => {
                         return format!("Moved {n} tasks to {}", q(&cs[0]["to"]["name"]))
                     }
@@ -1053,7 +1080,7 @@ pub fn list(vault: &Path, f: &Filter) -> Vec<Value> {
         .take(f.limit)
         .map(|e| {
             let id = s(e, "id");
-            // A plan or notes edit lists each of its changes ("Checked …", "Added …") rather than its one-line summary.
+            // A plan, notes or glossary edit lists each of its changes ("Checked …", "Added …") rather than its one-line summary.
             let details: Vec<String> = e["changes"]
                 .as_array()
                 .into_iter()
@@ -1063,6 +1090,8 @@ pub fn list(vault: &Path, f: &Filter) -> Vec<Value> {
                         crate::plan::describe_changes(&c["before"]["plan"], &c["after"]["plan"])
                     } else if s(c, "op") == "board.update" && crate::notes::covers(&c["after"]) {
                         crate::notes::describe_board(&c["before"], &c["after"])
+                    } else if s(c, "op") == "board.update" && crate::glossary::covers(&c["after"]) {
+                        crate::glossary::describe_changes(&c["before"]["terms"], &c["after"]["terms"])
                     } else {
                         vec![describe(c)]
                     }
@@ -1186,6 +1215,51 @@ fn revert_fields(target: &mut Value, c: &Value, what: &str, conflicts: &mut Vec<
 
 /// Reverses one board change on `b`. Returns whether anything changed. `locked` is the done column when it
 /// auto-archives: a task can't be put back there, since it would be archived again right away.
+/// Puts moved tasks back where they were; returns how many went back. All of them leave their columns
+/// first, then each goes back at its old index, lowest first: one at a time, the old indexes would
+/// point past tasks of the same entry still out of place (e.g. a sorted column).
+fn undo_moves(b: &mut Value, moves: &[&Value], locked: Option<&str>, conflicts: &mut Vec<String>) -> usize {
+    let mut back: Vec<(String, usize, u64)> = vec![];
+    for c in moves {
+        let id = s(c, "id");
+        let what = q(&c["title"]);
+        if !b["tasks"].get(&id).is_some_and(Value::is_object) {
+            conflicts.push(format!("{what} no longer exists"));
+            continue;
+        }
+        let here = column_of(b, &id)
+            .map(|i| b["columns"][i]["id"].clone())
+            .unwrap_or(Value::Null);
+        if here != c["to"]["column"] {
+            conflicts.push(format!("{what} was moved again since"));
+            continue;
+        }
+        let Some(col) = col_index(b, &c["from"]["column"]) else {
+            conflicts.push(format!(
+                "{what} can't go back: column {} no longer exists",
+                q(&c["from"]["name"])
+            ));
+            continue;
+        };
+        if locked.is_some_and(|d| b["columns"][col]["id"] == d) {
+            conflicts.push(format!(
+                "{what} can't go back to {} while it auto-archives",
+                q(&b["columns"][col]["name"])
+            ));
+            continue;
+        }
+        back.push((id, col, c["from"]["index"].as_u64().unwrap_or(0)));
+    }
+    for (id, _, _) in &back {
+        detach_task(b, id);
+    }
+    back.sort_by_key(|m| m.2);
+    for (id, col, index) in &back {
+        insert_task(b, *col, *index, id);
+    }
+    back.len()
+}
+
 fn undo_board_change(b: &mut Value, c: &Value, locked: Option<&str>, conflicts: &mut Vec<String>) -> bool {
     let now = json!(now_iso());
     let refused = |b: &Value, col: usize, what: &str, conflicts: &mut Vec<String>| {
@@ -1361,34 +1435,7 @@ fn undo_board_change(b: &mut Value, c: &Value, locked: Option<&str>, conflicts: 
             });
             true
         }
-        "task.move" => {
-            let id = s(c, "id");
-            let what = q(&c["title"]);
-            if !b["tasks"].get(&id).is_some_and(Value::is_object) {
-                conflicts.push(format!("{what} no longer exists"));
-                return false;
-            }
-            let here = column_of(b, &id)
-                .map(|i| b["columns"][i]["id"].clone())
-                .unwrap_or(Value::Null);
-            if here != c["to"]["column"] {
-                conflicts.push(format!("{what} was moved again since"));
-                return false;
-            }
-            let Some(col) = col_index(b, &c["from"]["column"]) else {
-                conflicts.push(format!(
-                    "{what} can't go back: column {} no longer exists",
-                    q(&c["from"]["name"])
-                ));
-                return false;
-            };
-            if refused(b, col, &what, conflicts) {
-                return false;
-            }
-            detach_task(b, &id);
-            insert_task(b, col, c["from"]["index"].as_u64().unwrap_or(0), &id);
-            true
-        }
+        "task.move" => undo_moves(b, &[c], locked, conflicts) > 0,
         op => {
             conflicts.push(format!("Can't undo '{op}'"));
             false
@@ -1570,7 +1617,21 @@ pub fn undo(vault: &Path, id: &str, skip_conflicts: bool, actor: &Actor) -> R<Va
     let auto = toggled.map_or(data["autoArchive"] == true, |c| c["before"]["autoArchive"] == true);
     let locked = if auto { crate::mcp::done_column(&data) } else { None };
     let mut applied = 0;
-    for c in changes.iter().rev() {
+    let rev: Vec<&Value> = changes.iter().rev().collect();
+    let mut i = 0;
+    while i < rev.len() {
+        let c = rev[i];
+        // A run of moves goes back together, so their old positions line up again.
+        if s(c, "op") == "task.move" {
+            let end = rev[i..]
+                .iter()
+                .position(|c| s(c, "op") != "task.move")
+                .map_or(rev.len(), |n| i + n);
+            applied += undo_moves(&mut data, &rev[i..end], locked.as_deref(), &mut conflicts);
+            i = end;
+            continue;
+        }
+        i += 1;
         let ok = if s(c, "op") == "project.update" {
             revert_fields(&mut data, c, "Project", &mut conflicts)
         } else if s(c, "op") == "decision.update" {
@@ -1649,6 +1710,38 @@ mod tests {
         let d = diff_board(&before, &after);
         assert_eq!(d.len(), 1);
         assert_eq!(describe(&d[0]), "Moved “A” from “TODO” to “DONE”");
+    }
+
+    #[test]
+    fn undoes_a_sorted_column_back_to_its_order() {
+        let (v, path) = setup("sort");
+        let titles: &[(&str, &str)] = &[("a", "A"), ("b", "B"), ("c", "C"), ("d", "D"), ("e", "E")];
+        let b0 = board(&[("todo", &["c", "a", "e", "b", "d"]), ("done", &[])], titles);
+        write_json(&v, &path, &b0, &Actor::app()).unwrap();
+        write_json(
+            &v,
+            &path,
+            &board(&[("todo", &["a", "b", "c", "d", "e"]), ("done", &[])], titles),
+            &Actor::app(),
+        )
+        .unwrap();
+        let entries = read_all(&v);
+        assert!(
+            headline(&entries[1]).starts_with("Reordered "),
+            "{}",
+            headline(&entries[1])
+        );
+        assert!(
+            headline(&entries[1]).ends_with(" tasks in “TODO”"),
+            "{}",
+            headline(&entries[1])
+        );
+        let r = undo(&v, &s(&entries[1], "id"), false, &Actor::app()).unwrap();
+        assert_eq!(r["done"], true);
+        assert_eq!(
+            ids(&vaultfs::read_json(&path).unwrap()["columns"][0]),
+            vec!["c", "a", "e", "b", "d"]
+        );
     }
 
     #[test]

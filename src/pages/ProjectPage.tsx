@@ -18,6 +18,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowLeft,
   ArrowUpDown,
+  BookA,
   GripVertical,
   CircleDot,
   History,
@@ -40,6 +41,7 @@ import { useShallow } from "zustand/react/shallow";
 import { ActivityView } from "../components/ActivityView";
 import { BoardView } from "../components/board/BoardView";
 import { DecisionsView } from "../components/DecisionsView";
+import { GlossaryView } from "../components/GlossaryView";
 import { NotesView } from "../components/NotesView";
 import { PlanImportDialog, PlanView } from "../components/PlanView";
 import { IssuesView } from "../components/IssuesView";
@@ -51,6 +53,7 @@ import {
   createBoard,
   currentProject,
   deleteBoard,
+  glossaryBoard,
   goHome,
   orderedBoards,
   renameBoard,
@@ -59,6 +62,7 @@ import {
   syncIssues,
   useStore,
 } from "../lib/store";
+import { isGlossary } from "../lib/glossary";
 import { isNotes } from "../lib/notes";
 import { emptyPlan, isPlan, planProgress } from "../lib/plan";
 import { collectTags, decisionList } from "../lib/tags";
@@ -67,13 +71,16 @@ import { colorHex, cx, relativeTime } from "../lib/util";
 export function ProjectPage() {
   const entry = useStore((s) => currentProject(s));
   const route = useStore((s) => s.route);
-  const boards = useStore(useShallow((s) => orderedBoards(s)));
+  // The glossary has its own sidebar entry, so it isn't listed with the boards.
+  const allBoards = useStore(useShallow((s) => orderedBoards(s)));
+  const boards = useMemo(() => allBoards.filter((b) => !isGlossary(b)), [allBoards]);
   const issues = useStore((s) => s.issues);
   const syncing = useStore((s) => s.syncing);
   const decisionCount = useStore((s) => Object.keys(s.decisions).length);
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [newBoard, setNewBoard] = useState<{ name: string; kind: NewKind } | null>(null);
+  const termCount = useStore((s) => glossaryBoard(s)?.terms?.length ?? 0);
   const [importing, setImporting] = useState(false);
   // A drag ends with a click on the dragged board; it shouldn't open it.
   const dragged = useRef(false);
@@ -91,7 +98,7 @@ export function ProjectPage() {
     [issues],
   );
   const decisionMap = useStore((s) => s.decisions);
-  const tagCount = useMemo(() => collectTags(boards, decisionList(decisionMap)).length, [boards, decisionMap]);
+  const tagCount = useMemo(() => collectTags(allBoards, decisionList(decisionMap)).length, [allBoards, decisionMap]);
   const lastSync = useMemo(() => {
     const times = Object.values(issues.repos)
       .map((r) => r.fetchedAt)
@@ -194,15 +201,17 @@ export function ProjectPage() {
               {boards.map((b) => {
                 const active = view.kind === "board" && view.boardId === b.id;
                 const plan = isPlan(b) && b.plan ? planProgress(b.plan) : null;
-                const notes = isNotes(b) ? (b.notes?.length ?? 0) : null;
+                const notes = isNotes(b) ? (b.notes?.length ?? 0) : isGlossary(b) ? (b.terms?.length ?? 0) : null;
                 const count = plan ? plan.total - plan.resolved : (notes ?? Object.keys(b.tasks).length);
-                const what = plan ? "plan" : notes !== null ? "notes board" : "board";
+                const kind = kindOf(b);
+                const what = { kanban: "board", plan: "plan", notes: "notes board", glossary: "glossary" }[kind];
+                const item = { kanban: "task", plan: "item", notes: "note", glossary: "term" }[kind];
                 return (
                   <SortableBoardItem
                     key={b.id}
                     id={b.id}
                     active={active}
-                    icon={<BoardIcon kind={plan ? "plan" : notes !== null ? "notes" : "kanban"} />}
+                    icon={<BoardIcon kind={kind} />}
                     onOpen={() => !dragged.current && setView({ kind: "board", boardId: b.id })}
                   >
                     <InlineEdit
@@ -237,7 +246,7 @@ export function ProjectPage() {
                               title: `Delete ${what} “${b.name}”?`,
                               message: plan
                                 ? `Its ${b.plan!.steps.length} step(s) and ${plan.total} item(s) will be deleted too. You can undo this from Activity.`
-                                : `Its ${count} ${notes !== null ? "note" : "task"}(s) will be deleted too. You can undo this from Activity.`,
+                                : `Its ${count} ${item}(s) will be deleted too. You can undo this from Activity.`,
                               confirmLabel: `Delete ${what}`,
                               danger: true,
                             });
@@ -297,6 +306,14 @@ export function ProjectPage() {
             <span className="sidebar-item-name">Decisions</span>
             {decisionCount > 0 && <span className="sidebar-count">{decisionCount}</span>}
           </div>
+          <div
+            className={cx("sidebar-item", view.kind === "glossary" && "active")}
+            onClick={() => setView({ kind: "glossary" })}
+          >
+            <BookA size={15} />
+            <span className="sidebar-item-name">Glossary</span>
+            {termCount > 0 && <span className="sidebar-count">{termCount}</span>}
+          </div>
         </div>
 
         <div className="sidebar-section">
@@ -354,6 +371,8 @@ export function ProjectPage() {
           <TagsView selected={view.tag} />
         ) : view.kind === "decisions" ? (
           <DecisionsView selected={view.decisionId} />
+        ) : view.kind === "glossary" ? (
+          <GlossaryView selected={view.termId} />
         ) : (
           <EmptyState icon={<LayoutGrid size={28} />} title="No boards in this project">
             <p className="muted">Boards hold columns and tasks. Create one to get started.</p>
@@ -370,20 +389,24 @@ export function ProjectPage() {
   );
 }
 
-type NewKind = "kanban" | "plan" | "notes";
+type BoardKind = "kanban" | NonNullable<Board["kind"]>;
+/** Kinds listed and made in the sidebar's board list (the glossary has its own entry). */
+type NewKind = Exclude<BoardKind, "glossary">;
 
-function BoardIcon({ kind }: { kind: NewKind }) {
+function BoardIcon({ kind }: { kind: BoardKind }) {
   return kind === "plan" ? (
     <ListChecks size={15} />
   ) : kind === "notes" ? (
     <StickyNote size={15} />
+  ) : kind === "glossary" ? (
+    <BookA size={15} />
   ) : (
     <Kanban size={15} />
   );
 }
 
-const BOARD_KIND_RANK = { kanban: 0, plan: 1, notes: 2 };
-const kindOf = (b: Board): NewKind => (b.kind === "plan" ? "plan" : b.kind === "notes" ? "notes" : "kanban");
+const BOARD_KIND_RANK: Record<BoardKind, number> = { kanban: 0, plan: 1, notes: 2, glossary: 3 };
+const kindOf = (b: Board): BoardKind => b.kind ?? "kanban";
 const byName = (a: Board, b: Board) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 
 /** One-off sorts: each rewrites the saved order, which dragging then adjusts ("Kind" keeps it within each kind). */
@@ -392,7 +415,11 @@ const BOARD_SORTS: { label: string; compare: (a: Board, b: Board) => number }[] 
   { label: "Name (Z–A)", compare: (a, b) => byName(b, a) },
   { label: "Newest first", compare: (a, b) => b.createdAt.localeCompare(a.createdAt) },
   { label: "Oldest first", compare: (a, b) => a.createdAt.localeCompare(b.createdAt) },
-  { label: "Kind (boards, plans, notes)", compare: (a, b) => BOARD_KIND_RANK[kindOf(a)] - BOARD_KIND_RANK[kindOf(b)] },
+  {
+    label: "Kind (boards, plans, notes)",
+    // A kind from a newer version goes last.
+    compare: (a, b) => (BOARD_KIND_RANK[kindOf(a)] ?? 9) - (BOARD_KIND_RANK[kindOf(b)] ?? 9),
+  },
 ];
 
 /**

@@ -4,6 +4,10 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Archive,
   ArchiveX,
+  ArrowDownAZ,
+  ArrowDownWideNarrow,
+  CalendarClock,
+  CalendarPlus,
   ChevronsLeftRight,
   ChevronsRightLeft,
   CircleCheck,
@@ -27,6 +31,7 @@ import {
   setAutoArchive,
   setColumnCollapsed,
   setDoneColumn,
+  sortColumn,
   toast,
   updateColumn,
 } from "../../lib/store";
@@ -180,6 +185,35 @@ export function ColumnView({
               },
             ]),
       ];
+  // Sorts once: the column is reordered, then tasks can be dragged anywhere again.
+  const sortItems: (MenuItem | "divider")[] =
+    label || tags || column.taskIds.length < 2
+      ? []
+      : [
+          "divider",
+          {
+            label: "Sort by priority",
+            icon: <ArrowDownWideNarrow size={14} />,
+            onClick: () => sortColumn(board.id, column.id, "priority"),
+          },
+          {
+            label: "Sort by name",
+            icon: <ArrowDownAZ size={14} />,
+            onClick: () => sortColumn(board.id, column.id, "name"),
+          },
+          {
+            label: "Sort by creation date",
+            icon: <CalendarPlus size={14} />,
+            title: "Newest first",
+            onClick: () => sortColumn(board.id, column.id, "created"),
+          },
+          {
+            label: "Sort by due date",
+            icon: <CalendarClock size={14} />,
+            title: "Soonest first; tasks without a due date go last",
+            onClick: () => sortColumn(board.id, column.id, "due"),
+          },
+        ];
   const collapseItem: MenuItem = {
     label: "Collapse",
     icon: <ChevronsRightLeft size={14} />,
@@ -335,6 +369,8 @@ export function ColumnView({
             )}
             items={[
               ...menuItems,
+              ...sortItems,
+              "divider",
               collapseItem,
               "divider",
               { label: "Delete column", icon: <Trash2 size={14} />, danger: true, onClick: () => setDeleting(true) },
@@ -375,8 +411,8 @@ export function ColumnView({
           ))}
           {count === 0 && adding === null && (
             <div className="column-empty static">
-              No tasks tagged {tags.tags.map((t) => `“${t}”`).join(tags.match === "all" ? " and " : " or ")} yet. Drop a
-              task here to tag it.
+              No tasks tagged {tags.tags.map((t) => `“${t}”`).join(tags.match === "all" ? " and " : " or ")} left to do.
+              Drop a task here to tag it.
             </div>
           )}
           {adding !== null && (

@@ -4297,6 +4297,100 @@ button.code-ref:hover {
   gap: 6px;
   min-height: 34px;
 }
+
+/* ---------------------------------------------------------------- glossary */
+.glossary-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.glossary-letter {
+  padding: 8px 4px 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  color: var(--accent-text);
+}
+/* Cards take a touch of the accent, so they follow the theme and the season like the rest of the app. */
+.glossary-term {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 4%, var(--card));
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.glossary-term:hover {
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+}
+.glossary-term.focused {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-left-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.glossary-term-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+.glossary-term-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  margin-right: 4px;
+  color: var(--accent-text);
+}
+.glossary-term-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.glossary-term:hover .glossary-term-actions,
+.glossary-term-actions:focus-within {
+  opacity: 1;
+}
+.glossary-definition {
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+.glossary-definition .markdown {
+  color: inherit;
+}
+/* Folded, a definition shows two lines (.markdown's line height is 1.65), the second fading out when there is more. */
+.glossary-definition.folded {
+  max-height: 3.3em;
+  overflow: hidden;
+}
+.glossary-definition.fade {
+  mask-image: linear-gradient(to bottom, #000 45%, transparent);
+}
+.glossary-term-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.glossary-term-foot .link-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.glossary-source {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.modal-actions.with-meta {
+  align-items: center;
+}
 .field input.limit-input {
   width: 120px;
   align-self: flex-start;
@@ -4912,7 +5006,7 @@ textarea.mono-area {
   border: 1px solid color-mix(in srgb, var(--c) 35%, var(--border));
   border-top: 3px solid var(--c);
   box-shadow: var(--shadow-sm);
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   transition:
     box-shadow 0.15s var(--ease),
@@ -4920,6 +5014,10 @@ textarea.mono-area {
 }
 .note:hover {
   box-shadow: var(--shadow);
+}
+/* No title and no text: still a post-it of normal size, easy to grab. */
+.note.empty {
+  min-height: 120px;
 }
 .note.ghost {
   z-index: 20;
@@ -5152,4 +5250,25 @@ textarea.note-dialog-desc {
 }
 .help-dot.active {
   background: var(--accent);
+}
+
+/* Shown by ErrorBoundary instead of a blank window. */
+.crash {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 560px;
+  margin: 15vh auto 0;
+  padding: 0 24px;
+  color: var(--text);
+}
+.crash-detail {
+  max-width: 100%;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 12px;
+  white-space: pre-wrap;
 }
