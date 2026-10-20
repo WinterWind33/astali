@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  Archive,
   ArrowLeft,
   ArrowUpDown,
   BookA,
@@ -39,6 +40,7 @@ import {
 import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ActivityView } from "../components/ActivityView";
+import { BoardArchiveDialog } from "../components/BoardArchiveDialog";
 import { BoardView } from "../components/board/BoardView";
 import { DecisionsView } from "../components/DecisionsView";
 import { GlossaryView } from "../components/GlossaryView";
@@ -50,6 +52,7 @@ import { TagsView } from "../components/TagsView";
 import { EmptyState, InlineEdit, Menu, confirm } from "../components/ui";
 import type { Board } from "../lib/types";
 import {
+  archiveBoard,
   createBoard,
   currentProject,
   deleteBoard,
@@ -81,7 +84,9 @@ export function ProjectPage() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [newBoard, setNewBoard] = useState<{ name: string; kind: NewKind } | null>(null);
   const termCount = useStore((s) => glossaryBoard(s)?.terms?.length ?? 0);
+  const archivedCount = useStore((s) => Object.keys(s.archivedBoards).length);
   const [importing, setImporting] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   // A drag ends with a click on the dragged board; it shouldn't open it.
   const dragged = useRef(false);
   const sensors = useSensors(
@@ -148,6 +153,12 @@ export function ProjectPage() {
           <div className="sidebar-label">
             <span>Boards</span>
             <span className="sidebar-label-actions">
+              {archivedCount > 0 && (
+                <button className="icon-btn small" title="Archived boards" onClick={() => setArchiveOpen(true)}>
+                  <Archive size={14} />
+                  <span className="count-badge">{archivedCount}</span>
+                </button>
+              )}
               {boards.length > 1 && (
                 <Menu
                   align="right"
@@ -236,6 +247,7 @@ export function ProjectPage() {
                       )}
                       items={[
                         { label: "Rename", icon: <Pencil size={14} />, onClick: () => setRenaming(b.id) },
+                        { label: `Archive ${what}`, icon: <Archive size={14} />, onClick: () => archiveBoard(b.id) },
                         "divider",
                         {
                           label: `Delete ${what}`,
@@ -360,9 +372,9 @@ export function ProjectPage() {
         {view.kind === "board" && openBoard && isNotes(openBoard) ? (
           <NotesView key={view.boardId} boardId={view.boardId} focusNote={view.noteId} />
         ) : view.kind === "board" && openBoard && isPlan(openBoard) ? (
-          <PlanView key={view.boardId} boardId={view.boardId} />
+          <PlanView key={view.boardId} boardId={view.boardId} focus={view.stepId} />
         ) : view.kind === "board" ? (
-          <BoardView key={view.boardId} boardId={view.boardId} />
+          <BoardView key={view.boardId} boardId={view.boardId} archivedTask={view.archivedTaskId} />
         ) : view.kind === "issues" ? (
           <IssuesView />
         ) : view.kind === "activity" ? (
@@ -385,6 +397,7 @@ export function ProjectPage() {
 
       {editing && <ProjectDialog project={project} onClose={() => setEditing(false)} />}
       {importing && <PlanImportDialog onClose={() => setImporting(false)} />}
+      {archiveOpen && <BoardArchiveDialog onClose={() => setArchiveOpen(false)} />}
     </div>
   );
 }

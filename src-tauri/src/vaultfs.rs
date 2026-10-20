@@ -112,8 +112,16 @@ pub fn config_dir() -> Option<PathBuf> {
     base.map(|b| b.join(APP_IDENTIFIER))
 }
 
+/// The desktop app's settings file. Debug builds can run on their own, like the app does (lib.rs).
+pub fn config_file() -> Option<PathBuf> {
+    match std::env::var_os("ASTALI_CONFIG_DIR").filter(|_| cfg!(debug_assertions)) {
+        Some(dir) => Some(PathBuf::from(dir).join("config.json")),
+        None => Some(config_dir()?.join("config.json")),
+    }
+}
+
 fn app_config() -> Option<Value> {
-    read_json(&config_dir()?.join("config.json")).ok()
+    read_json(&config_file()?).ok()
 }
 
 pub fn last_vault_from_config() -> Option<PathBuf> {

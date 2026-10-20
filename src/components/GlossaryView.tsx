@@ -33,11 +33,11 @@ export function GlossaryView({ selected }: { selected?: string }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(selected ? [selected] : []));
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Ctrl+F (or "/") jumps back to the search box from anywhere in the view.
+  // "/" jumps back to the search box from anywhere in the view (Ctrl+F too, from App).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable]");
-      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") || (e.key === "/" && !typing)) {
+      if (e.key === "/" && !typing) {
         if (document.querySelector(".modal")) return;
         e.preventDefault();
         searchRef.current?.focus();
@@ -85,6 +85,7 @@ export function GlossaryView({ selected }: { selected?: string }) {
             <Search size={14} />
             <input
               ref={searchRef}
+              data-local-search
               autoFocus
               placeholder={`Search ${terms.length} term${terms.length === 1 ? "" : "s"}…`}
               value={query}

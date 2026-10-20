@@ -141,7 +141,14 @@ export function normalizeTask(t: Partial<Task>): Task {
   };
 }
 
-export function normalizeBoard(b: Partial<Board>): Board {
+export function normalizeBoard(raw: Partial<Board>): Board {
+  // Undo of an archive leaves `archivedAt: null` behind; only a date means archived, and never for the glossary.
+  const { archivedAt, ...rest } = raw;
+  const board = normalizeBoardBody(rest);
+  return typeof archivedAt === "string" && board.kind !== "glossary" ? { ...board, archivedAt } : board;
+}
+
+function normalizeBoardBody(b: Partial<Board>): Board {
   const tasks: Record<string, Task> = {};
   for (const [id, t] of Object.entries(b.tasks ?? {})) tasks[id] = normalizeTask({ ...t, id });
   const seen = new Set<string>();

@@ -1,5 +1,5 @@
 import { ArchiveRestore, Search, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { doneColumn } from "../../lib/labelColumns";
 import { autoArchives, purgeArchived, restoreArchived, restoreTarget, toast, useStore } from "../../lib/store";
 import type { ArchivedTask } from "../../lib/types";
@@ -7,7 +7,16 @@ import { relativeTime } from "../../lib/util";
 import { Modal, ModalHeader, TagChip, confirm } from "../ui";
 
 /** A board's archived tasks, newest first: find one, put it back, or delete it for good (D-8). */
-export function ArchiveDialog({ boardId, onClose }: { boardId: string; onClose: () => void }) {
+export function ArchiveDialog({
+  boardId,
+  focusTask,
+  onClose,
+}: {
+  boardId: string;
+  /** A task to scroll to and mark, when the archive is opened from search. */
+  focusTask?: string;
+  onClose: () => void;
+}) {
   const board = useStore((s) => s.boards[boardId]?.board);
   const [query, setQuery] = useState("");
   const archive = board?.archive ?? [];
@@ -18,6 +27,15 @@ export function ArchiveDialog({ boardId, onClose }: { boardId: string; onClose: 
       `${t.title} ${t.description} ${t.labels.join(" ")}`.toLowerCase().includes(q),
     );
   }, [archive, query]);
+  useEffect(() => {
+    if (!focusTask) return;
+    const frame = requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-archived-id="${CSS.escape(focusTask)}"]`);
+      el?.scrollIntoView({ block: "center" });
+      el?.classList.add("flash");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusTask]);
   if (!board) return null;
   const columnName = (id: string) => board.columns.find((c) => c.id === id)?.name;
   // Tasks that would go back to an auto-archiving done column stay archived until it's turned off.
@@ -53,13 +71,19 @@ export function ArchiveDialog({ boardId, onClose }: { boardId: string; onClose: 
         )}
         <label className="search">
           <Search size={15} />
-          <input autoFocus placeholder="Search the archive" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input
+            data-local-search
+            autoFocus
+            placeholder="Search the archive"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
         </label>
         <div className="archive-list">
           {shown.map((entry) => {
             const { task, from, at } = entry;
             return (
-              <div key={task.id} className="archive-row">
+              <div key={task.id} className="archive-row" data-archived-id={task.id}>
                 <div className="archive-main">
                   <div className="archive-title">{task.title || "Untitled"}</div>
                   <div className="faint small">

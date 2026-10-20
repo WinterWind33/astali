@@ -842,7 +842,7 @@ button.crumb:hover {
 .whats-new-body {
   max-height: 60vh;
   overflow-y: auto;
-  padding: 0 24px;
+  padding: 16px 24px 4px;
 }
 .whats-new-actions {
   align-items: center;
@@ -852,21 +852,76 @@ button.crumb:hover {
 .release-notes {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 28px;
 }
-.release h3 {
-  margin: 0 0 6px;
-  font-size: 15px;
+.release-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
 }
-.release h3 + * {
-  margin-top: 0;
+.release-head h3 {
+  margin: 0;
+  font-size: 16px;
 }
-.release h3 ~ div h3 {
-  font-size: 12px;
-  text-transform: uppercase;
+.release-section + .release-section {
+  margin-top: 18px;
+}
+.release-kind {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 650;
   letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.release-kind.added {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  /* Mixed with the text color so it stays readable on the light theme too. */
+  color: color-mix(in srgb, var(--success) 70%, var(--text));
+}
+.release-kind.changed {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.release-kind.fixed {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: color-mix(in srgb, var(--warning) 65%, var(--text));
+}
+.release-kind.removed,
+.release-kind.security {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.release-entries {
+  color: var(--text-dim);
+}
+.release-entries ul {
+  padding-left: 18px;
+}
+.release-entries li + li {
+  margin-top: 9px;
+}
+.release-entries li::marker {
   color: var(--text-faint);
-  margin: 10px 0 4px;
+}
+.release-entries strong {
+  color: var(--text);
+  font-weight: 650;
+}
+/* A headline entry ("**Feature**: …") stands out from the smaller ones around it. */
+.release-entries li:has(> strong:first-child) {
+  color: var(--text);
+}
+.release-entries li:has(> strong:first-child)::marker {
+  color: var(--accent);
 }
 .titlebar-tool:hover {
   background: var(--surface-2);
@@ -894,10 +949,9 @@ button.crumb:hover {
   min-width: 0;
   white-space: nowrap;
 }
-.repo-status {
-  cursor: default;
-}
-.repo-link:hover {
+.repo-link:hover,
+.repo-status:hover,
+.repo-status[aria-expanded="true"] {
   background: var(--surface-2);
   color: var(--text);
 }
@@ -2199,6 +2253,18 @@ input.board-name {
 .archive-empty {
   padding: 24px 0;
   text-align: center;
+}
+
+/* The project's archived boards (BoardArchiveView), listed with the archive's rows. */
+.board-archive-icon {
+  display: flex;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.board-archive-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .icon-btn .count-badge {
   margin-left: 4px;
@@ -3616,6 +3682,213 @@ input.check-text {
   line-height: 1.6;
   max-height: 220px;
   overflow: auto;
+  user-select: text;
+}
+
+.git-panel {
+  width: 340px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.git-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.git-panel-branch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin: -3px -6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--text);
+}
+.git-panel-branch:hover,
+.git-panel-branch.open {
+  background: var(--surface-hover);
+}
+.git-panel-branch > svg:first-child {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.git-panel-branch > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-panel-chevron {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: transform 0.15s;
+}
+.git-panel-branch.open .git-panel-chevron {
+  transform: rotate(180deg);
+}
+.git-branch-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: -4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.git-file-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Five rows, then it scrolls. */
+  max-height: calc(5 * 22px);
+  overflow-y: auto;
+  font-size: 12.5px;
+}
+/* Always show the thumb, so the list visibly holds more than five files. */
+.git-file-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+}
+.git-file-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  height: 22px;
+  line-height: 18px;
+  padding: 2px 0;
+  min-width: 0;
+}
+.git-file-status {
+  width: 12px;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text-faint);
+}
+.git-file-status.s-A,
+.git-file-status.s-U {
+  color: var(--success);
+}
+.git-file-status.s-M,
+.git-file-status.s-R {
+  color: var(--warning);
+}
+.git-file-status.s-D,
+.git-file-status.s-C {
+  color: var(--danger);
+}
+.git-file-name {
+  white-space: nowrap;
+}
+.git-file-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+}
+.git-panel-busy {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.git-panel-sub {
+  margin: -6px 0 0;
+  line-height: 1.5;
+}
+.git-panel-conflict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 10px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.git-panel-conflict > span {
+  flex: 1;
+}
+.git-panel-actions {
+  display: flex;
+  gap: 6px;
+}
+.git-panel-actions .btn {
+  flex: 1;
+}
+.git-panel-note {
+  margin: -4px 0 0;
+}
+.git-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.git-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+.git-panel textarea {
+  font-size: 12.5px;
+}
+.git-panel .input-row input {
+  height: 27px;
+  font-size: 12.5px;
+}
+.git-branch-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.git-branch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--text);
+}
+.git-branch > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-branch svg {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.git-branch:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.git-branch.current {
+  font-weight: 600;
+}
+.git-branch.current svg {
+  color: var(--accent);
+}
+.git-conflict-files {
+  margin: 0;
+  padding: 10px 12px 10px 28px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  max-height: 220px;
+  overflow: auto;
+  line-height: 1.7;
   user-select: text;
 }
 
@@ -5199,22 +5472,56 @@ textarea.note-dialog-desc {
 .help-title svg {
   color: var(--accent);
 }
+.help-layout {
+  display: grid;
+  grid-template-columns: 196px 1fr;
+  gap: 8px;
+  padding: 8px 12px 0 12px;
+}
+.help-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 440px;
+  overflow-y: auto;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+.help-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  text-align: left;
+}
+.help-nav-item svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+.help-nav-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.help-nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.help-nav-item.active svg {
+  color: var(--accent);
+}
 .help-body {
-  padding: 4px 24px 8px;
-  min-height: 300px;
+  height: 440px;
+  overflow-y: auto;
+  padding: 2px 16px 16px 14px;
   font-size: 13.5px;
   line-height: 1.6;
   color: var(--text-dim);
-}
-.help-body p,
-.help-body ul {
-  margin: 0 0 10px;
-}
-.help-body ul {
-  padding-left: 20px;
-}
-.help-body li {
-  margin-bottom: 4px;
 }
 .help-body b {
   color: var(--text);
@@ -5224,6 +5531,46 @@ textarea.note-dialog-desc {
   font-size: 11.5px;
   color: var(--text-dim);
 }
+.help-lead {
+  margin: 0 0 20px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.help-points {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.help-points li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 14px;
+  border-left: 2px solid var(--accent-soft);
+}
+.help-points li > b {
+  font-size: 13px;
+}
+.help-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 22px;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 13px;
+}
+.help-tip svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--accent);
+}
 .help-footer {
   display: flex;
   align-items: center;
@@ -5232,24 +5579,13 @@ textarea.note-dialog-desc {
   padding: 14px 24px 18px;
   border-top: 1px solid var(--border);
 }
-.help-dots {
-  display: flex;
-  gap: 6px;
-}
-.help-dot {
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: var(--border-strong);
-  cursor: pointer;
-}
-.help-dot:hover {
-  background: var(--text-faint);
-}
-.help-dot.active {
-  background: var(--accent);
+@media (max-width: 720px) {
+  .help-layout {
+    grid-template-columns: 1fr;
+  }
+  .help-nav {
+    display: none;
+  }
 }
 
 /* Shown by ErrorBoundary instead of a blank window. */
@@ -5271,4 +5607,217 @@ textarea.note-dialog-desc {
   background: var(--surface-2);
   font-size: 12px;
   white-space: pre-wrap;
+}
+
+/* Something opened from search, briefly marked where it lives. */
+.flash {
+  animation: flash 1.8s var(--ease);
+}
+@keyframes flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+/* ---------------------------------------------------------------- search */
+
+.titlebar-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  min-width: 180px;
+  margin-right: 8px;
+  padding: 0 6px 0 9px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.titlebar-search span {
+  flex: 1;
+  text-align: left;
+}
+.titlebar-search kbd {
+  font-size: 10.5px;
+}
+.titlebar-search:hover {
+  border-color: var(--border-strong);
+  color: var(--text-dim);
+}
+.modal-backdrop:has(> .search-dialog) {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.search-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: 72vh;
+  overflow: hidden;
+}
+.search-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+}
+.search-dialog-head > input {
+  flex: 1;
+  min-width: 0;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  font-size: 15px;
+  color: var(--text);
+}
+.search-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.search-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px 8px;
+}
+.search-empty {
+  padding: 22px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+.search-group h4 {
+  margin: 10px 8px 4px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.search-hit {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--text);
+}
+.search-hit.active {
+  background: var(--surface-2);
+}
+.search-hit.faded .search-hit-title {
+  color: var(--text-dim);
+}
+.search-hit-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-faint);
+}
+.search-hit.active .search-hit-icon {
+  color: var(--accent);
+}
+.search-hit-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+.search-hit-title {
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.search-hit-snippet {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.search-hit-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  max-width: 45%;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.search-hit mark {
+  background: none;
+  color: var(--accent-text);
+  font-weight: 650;
+}
+.search-more {
+  margin: 2px 0 4px 35px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: var(--accent-text);
+}
+.search-more:hover {
+  text-decoration: underline;
+}
+.search-foot {
+  display: flex;
+  gap: 16px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+}
+.search-foot kbd {
+  font-size: 10.5px;
+}
+
+/* What to git-ignore (GitIgnoreDialog). */
+.gitignore-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gitignore-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.gitignore-choice:hover {
+  border-color: var(--border-strong);
+}
+.gitignore-choice.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.gitignore-choice input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.gitignore-choice > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text);
+  font-size: 13px;
 }

@@ -52,16 +52,25 @@ export function isOwnWrite(path: string, content: string | null): boolean {
 const pending = new Map<string, { timer: number; data: unknown }>();
 const chains = new Map<string, Promise<void>>();
 let onError: (path: string, e: unknown) => void = (p, e) => console.error("write failed", p, e);
+let onWrite: (path: string) => void = () => {};
 
 export function setWriteErrorHandler(fn: typeof onError) {
   onError = fn;
+}
+
+/** Called for every file the app writes, once the write is done. */
+export function setWriteListener(fn: typeof onWrite) {
+  onWrite = fn;
 }
 
 function enqueue(path: string, data: unknown): Promise<void> {
   const text = toJson(data);
   lastWritten.set(normPath(path), text);
   const prev = chains.get(path) ?? Promise.resolve();
-  const next = prev.then(() => writeText(path, text)).catch((e) => onError(path, e));
+  const next = prev
+    .then(() => writeText(path, text))
+    .then(() => onWrite(path))
+    .catch((e) => onError(path, e));
   chains.set(path, next);
   return next;
 }

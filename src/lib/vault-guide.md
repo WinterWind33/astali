@@ -18,7 +18,7 @@ validates input and keeps files consistent. Editing the JSON directly also works
   directly to the JSON files are not recorded there, so they can't be undone from the app
 
 ## project.json
-`{ schemaVersion: 1, id, name, description, color, repos: [{owner, repo}], tagColors: { [tag lowercase]: color }, decisionCharLimit: number, glossaryCharLimit: number, boardOrder: [boardId...], createdAt, updatedAt }`
+`{ schemaVersion: 1, id, name, description, color, repos: [{owner, repo}], tagColors: { [tag lowercase]: color }, decisionCharLimit: number, glossaryCharLimit: number, boardOrder: [boardId...] (the sidebar's boards: not the glossary or archived boards), createdAt, updatedAt }`
 
 `tagColors` holds the colors picked for task tags (`Task.labels`); tags not listed get a color derived from their name.
 `decisionCharLimit` (a whole number from 50 to 5000, default 500) caps a decision's `why` + `rejected`, in characters.
@@ -42,6 +42,11 @@ validates input and keeps files consistent. Editing the JSON directly also works
 one of them isn't blocked any more. When it is absent, or names a column that is gone, the last column that holds
 tasks is the done column.
 With `autoArchive: true`, a task moved into the done column goes straight to the archive (`from` is the done column).
+
+Any board but the glossary can carry `archivedAt` (when it was archived): it is then in the project's boards
+archive, hidden from the sidebar, from task moves and links, and from every MCP tool until it is restored, and
+it is left out of the project's `boardOrder`. Its file, tasks and own `archive` stay as they are; restoring drops
+`archivedAt` and adds the board back at the end of `boardOrder`.
 
 A board with `kind: "plan"` is an implementation plan instead: its `columns` and `tasks` stay empty and it holds
 `plan: { goal (markdown), issues: [{repo, number}], steps: [Step], questions: [Question], notes (markdown) }`:

@@ -145,13 +145,17 @@ function issueMatches(issue: GhIssue, q: string) {
     .every((w) => hay.includes(w));
 }
 
-export function BoardView({ boardId }: { boardId: string }) {
+export function BoardView({ boardId, archivedTask }: { boardId: string; archivedTask?: string }) {
   const board = useStore((s) => s.boards[boardId]?.board);
   const issues = useStore((s) => s.issues);
   const repos = useStore((s) => currentProject(s)?.project.repos);
   const [query, setQuery] = useState("");
   const [openTask, setOpenTask] = useState<string | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  // An archived task opened from search shows in the archive.
+  useEffect(() => {
+    if (archivedTask) setArchiveOpen(true);
+  }, [archivedTask]);
   const [openIssue, setOpenIssue] = useState<IssueRef | null>(null);
   // A task opened from a link on another board.
   const pendingTask = useStore((s) => s.pendingTask);
@@ -410,6 +414,7 @@ export function BoardView({ boardId }: { boardId: string }) {
           <label className="search">
             <Search size={15} />
             <input
+              data-local-search
               ref={searchRef}
               placeholder="Filter tasks"
               value={query}
@@ -535,7 +540,9 @@ export function BoardView({ boardId }: { boardId: string }) {
           onOpenTask={setOpenTask}
         />
       )}
-      {archiveOpen && <ArchiveDialog boardId={boardId} onClose={() => setArchiveOpen(false)} />}
+      {archiveOpen && (
+        <ArchiveDialog boardId={boardId} focusTask={archivedTask} onClose={() => setArchiveOpen(false)} />
+      )}
       {openIssue && (
         <IssueDialog
           boardId={boardId}

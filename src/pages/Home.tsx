@@ -42,7 +42,12 @@ export function Home() {
           {projects.length > 3 && (
             <label className="search">
               <Search size={15} />
-              <input placeholder="Search projects" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input
+                data-local-search
+                placeholder="Search projects"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </label>
           )}
           <button className="btn ghost" onClick={() => closeVault()} title="Close this vault and choose another">

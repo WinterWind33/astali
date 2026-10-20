@@ -188,7 +188,8 @@ fn handle(ctx: &Ctx, msg: &Value) -> Option<Value> {
                      Tag colors are set per project with update_project `tag_colors`. \
                      Finished tasks can be archived (archive_tasks, restore_task): they leave the board and get_board, which \
                      counts them as `archived`, but search_tasks still finds them. A done column marked `autoArchive` archives \
-                     every task moved into it. \
+                     every task moved into it. A whole board can be archived too (archive_board, restore_board): until it is \
+                     restored, no tool reads or changes it, and list_boards names it under `archivedBoards`. \
                      Decisions record why the code is the way it is: short notes numbered D-1, D-2… per project, each a \
                      title and a `why` (with an optional rejected alternative) kept under the project's character limit, \
                      plus `about`: the classes, functions or paths they explain. Before reworking code that looks odd, \
@@ -209,7 +210,11 @@ fn handle(ctx: &Ctx, msg: &Value) -> Option<Value> {
                      link_tasks / unlink_tasks. A task is finished, and stops blocking others, once it is in its board's \
                      done column (`done: true` in get_board, picked with update_column). \
                      Every change is recorded in the vault's history: list_history shows what changed (by you, the user \
-                     or other agents) and undo reverts an entry. Changes appear live in the desktop app.",
+                     or other agents) and undo reverts an entry. Changes appear live in the desktop app. \
+                     To find something without knowing where it lives, `search` looks through a project's tasks, notes, \
+                     plan steps and items, decisions, glossary terms and boards at once. \
+                     When the user asks to change the app's settings (theme, automatic git sync of the vault…), use \
+                     get_settings and update_settings.",
                     ctx.vault().map(|v| v.display().to_string()).unwrap_or_else(|_| "none open yet".into()),
                     ctx.source.get().describe()
                 ),
@@ -286,19 +291,33 @@ fn tools() -> Vec<Value> {
     vec![
         tool("create_vault",
             "Make a folder into a new Astali vault (creating the folder if needed) and use it for the rest of this session. \
-             A folder that already is a vault is used as it is. Inside a git repository, `gitignore: true` keeps the vault's \
-             files out of commits (see set_gitignore); the result's `git` says whether the vault is in one. The user opens \
-             the new vault in the desktop app with \"Open another vault…\" in the vault menu.",
+             A folder that already is a vault is used as it is. Inside a git repository, `gitignore` keeps the whole vault \
+             (\"vault\") or only its caches (\"cache\") out of commits (see set_gitignore); the result's `git` says whether \
+             the vault is in one. The user opens the new vault in the desktop app with \"Open another vault…\" in the vault menu.",
             json!({ "path": s("Folder for the vault: an absolute path, or relative to the folder the server runs in"),
                     "name": s("Optional name shown in the app (else the folder's name)"),
-                    "gitignore": { "type": "boolean", "description": "Add the vault's files to the repository's .gitignore (default false)" } }),
+                    "gitignore": { "type": "string", "enum": ["vault", "cache"],
+                                   "description": "What to add to the repository's .gitignore: the whole vault, or only its caches (default: nothing)" } }),
             &["path"], "write"),
         tool("set_gitignore",
-            "When the vault is inside a git repository, add (enabled: true) or remove a managed block in the repository's \
-             .gitignore listing the vault's files, so they aren't committed with the code. Once added, the block follows \
-             projects as they come and go. Same as the switch in the app's settings.",
-            json!({ "enabled": { "type": "boolean", "description": "true adds the block, false removes it" } }),
-            &["enabled"], "write"),
+            "When the vault is inside a git repository, choose what a managed block in the repository's .gitignore keeps \
+             out of commits: the whole vault (\"vault\", so boards stay out of the code's history), only Astali's caches \
+             (\"cache\": boards, projects, decisions and history are committed, the GitHub issues cache isn't), or \
+             nothing (\"none\" removes the block). The block follows projects as they come and go. Same as the choice \
+             in the app's settings.",
+            json!({ "ignore": { "type": "string", "enum": ["vault", "cache", "none"], "description": "What to ignore" } }),
+            &["ignore"], "write"),
+        tool("get_settings",
+            "Read the Astali app's settings: theme, seasonal themes, update checks, and automatic sync for this              session's vault (`autoSync`: sync after that many changes made in the app, 0 when off). The result's `git`              says whether the vault is in a git repository and what its .gitignore block ignores (\"vault\", \"cache\" or              null); automatic sync only runs when it is in one and the whole vault isn't ignored.",
+            json!({}), &[], "read"),
+        tool("update_settings",
+            "Change the Astali app's settings when the user asks; only the ones given change, and the open app picks              them up right away. `autoSync` applies to this session's vault: after that many changes made in the app,              once the user pauses, the app commits the vault's files, pulls and pushes (0 turns it off). It only runs              while the vault is in a git repository and the whole vault isn't git-ignored (see set_gitignore).",
+            json!({ "theme": { "type": "string", "enum": crate::settings::THEMES, "description": "\"system\" follows the OS" },
+                    "seasonalThemes": { "type": "boolean", "description": "Dress the app up for Halloween, Christmas and Easter" },
+                    "checkForUpdates": { "type": "boolean", "description": "Ask GitHub for a newer version when the app starts" },
+                    "autoSync": { "type": "integer", "minimum": 0, "maximum": crate::settings::AUTO_SYNC_MAX,
+                                  "description": "Sync this vault after this many changes; 0 turns automatic sync off" } }),
+            &[], "write"),
         tool("list_projects", "List all projects in the vault with board counts and linked GitHub repos.", json!({}), &[], "read"),
         tool("create_project", "Create a project. It starts with one board named 'Main' with To Do / Doing / Done columns.",
             json!({ "name": s("Project name"), "description": s("Optional description"), "color": color,
@@ -332,6 +351,10 @@ fn tools() -> Vec<Value> {
             json!({ "project": project, "board": board, "name": s("New name"), "description": s("New description"), "note_limit": note_limit }),
             &["project", "board"], "write"),
         tool("delete_board", "Delete a board and its tasks (can be restored with undo).", json!({ "project": project, "board": board }), &["project", "board"], "delete"),
+        tool("archive_board", "Put a whole board away in the project's boards archive, with its tasks and its own task archive. Until restore_board brings it back, no tool reads or changes it, tasks can't be moved or linked to it, and list_boards names it under `archivedBoards`. The glossary can't be archived.",
+            json!({ "project": project, "board": board }), &["project", "board"], "write"),
+        tool("restore_board", "Bring an archived board back to the project's boards, at the end of the sidebar.",
+            json!({ "project": project, "board": s("Archived board id or name (case-insensitive)") }), &["project", "board"], "write"),
 
         tool("create_column",
             "Add a column to a board. With `label`, the column is a live view of the cached issues carrying that GitHub \
@@ -442,6 +465,16 @@ fn tools() -> Vec<Value> {
                     "board": s("Limit to one board, id or name (optional)"),
                     "limit": { "type": "integer", "minimum": 1, "description": "Most tasks to list (default 50)" } }),
             &[], "read"),
+        tool("search",
+            "Search everything in a project (or every project) at once, like the app's search box: tasks (archived ones \
+             too), notes, plan steps, plan items and open questions, decisions, glossary terms and board names. Every word \
+             of `query` must appear in the title or the text; matches in titles come first. Each result says its `kind` and \
+             where it lives (board, column, plan step), with the ids the other tools take.",
+            json!({ "query": s("Words to look for"), "project": s("Limit to one project (optional)"),
+                    "kinds": { "type": "array", "items": { "type": "string", "enum": SEARCH_KINDS },
+                               "description": "Only these kinds of results (optional)" },
+                    "limit": { "type": "integer", "minimum": 1, "description": "Most results to list (default 30)" } }),
+            &["query"], "read"),
 
         tool("search_decisions",
             "Find the project's decisions: why something in the code is the way it is. Every word of `query` must \
@@ -731,7 +764,20 @@ fn boards_dir(p: &Proj) -> PathBuf {
     p.path.parent().unwrap().join("boards")
 }
 
+/// Whether the board is in the project's boards archive: out of reach of every tool but restore_board.
+fn is_archived_board(b: &Value) -> bool {
+    b["archivedAt"].is_string() && !is_glossary(b)
+}
+
+/// The project's boards, archived ones left out.
 fn load_boards(p: &Proj) -> R<Vec<BoardFile>> {
+    let mut out = load_board_files(p)?;
+    out.retain(|b| !is_archived_board(&b.data));
+    Ok(out)
+}
+
+/// Every board file of the project, archived boards included.
+fn load_board_files(p: &Proj) -> R<Vec<BoardFile>> {
     let dir = boards_dir(p);
     let mut out = vec![];
     if !dir.is_dir() {
@@ -761,17 +807,38 @@ fn load_boards(p: &Proj) -> R<Vec<BoardFile>> {
 }
 
 fn find_board(p: &Proj, q: &str) -> R<BoardFile> {
-    let all = load_boards(p)?;
+    let (archived, all): (Vec<BoardFile>, Vec<BoardFile>) = load_board_files(p)?
+        .into_iter()
+        .partition(|b| is_archived_board(&b.data));
+    let matches = |b: &BoardFile| s(&b.data, "id") == q || eq_ci(&s(&b.data, "name"), q);
+    if let Some(b) = all.iter().position(matches) {
+        return Ok(all.into_iter().nth(b).unwrap());
+    }
+    if let Some(b) = archived.iter().find(|b| matches(b)) {
+        return Err(format!(
+            "Board '{}' is archived; bring it back with restore_board first",
+            s(&b.data, "name")
+        ));
+    }
     let names: Vec<String> = all.iter().map(|b| s(&b.data, "name")).collect();
-    all.into_iter()
+    Err(format!(
+        "Board '{q}' not found in project '{}'. Available: {}",
+        s(&p.data, "name"),
+        list_or_none(&names)
+    ))
+}
+
+/// An archived board of the project, by id or name.
+fn find_archived_board(p: &Proj, q: &str) -> R<BoardFile> {
+    let archived: Vec<BoardFile> = load_board_files(p)?
+        .into_iter()
+        .filter(|b| is_archived_board(&b.data))
+        .collect();
+    let names: Vec<String> = archived.iter().map(|b| s(&b.data, "name")).collect();
+    archived
+        .into_iter()
         .find(|b| s(&b.data, "id") == q || eq_ci(&s(&b.data, "name"), q))
-        .ok_or_else(|| {
-            format!(
-                "Board '{q}' not found in project '{}'. Available: {}",
-                s(&p.data, "name"),
-                list_or_none(&names)
-            )
-        })
+        .ok_or_else(|| format!("No archived board '{q}'. Archived: {}", list_or_none(&names)))
 }
 
 fn columns_mut(b: &mut Value) -> &mut Vec<Value> {
@@ -1559,6 +1626,165 @@ fn decision_score(d: &Value, tokens: &[String]) -> u32 {
     score
 }
 
+// ------------------------------------------------------------------------------- search
+
+/// What the `search` tool can find, as the app's search box groups it.
+const SEARCH_KINDS: &[&str] = &["task", "note", "step", "item", "question", "decision", "term", "board"];
+
+/// How well a folded title and text match the tokens: 0 unless every one is in either. Words in the
+/// title count double, and a title that is, or starts with, the whole query comes first (as in src/lib/search.ts).
+fn search_score(tokens: &[String], title: &str, text: &str) -> u32 {
+    let (title, text) = (term_key(title), term_key(text));
+    let mut n = 0;
+    for t in tokens {
+        n += if title.contains(t.as_str()) {
+            2
+        } else if text.contains(t.as_str()) {
+            1
+        } else {
+            return 0;
+        };
+    }
+    let whole = tokens.join(" ");
+    if title == whole {
+        n + 10
+    } else if title.starts_with(&whole) {
+        n + 5
+    } else {
+        n
+    }
+}
+
+/// Plan items with their sub-items, depth first.
+fn flat_items<'a>(items: &'a Value, out: &mut Vec<&'a Value>) {
+    for it in items.as_array().into_iter().flatten() {
+        out.push(it);
+        flat_items(&it["children"], out);
+    }
+}
+
+/// Every match in a project's boards (archived boards left out) and decisions, with its score.
+fn search_project(p: &Proj, tokens: &[String], out: &mut Vec<(u32, Value)>) -> R<()> {
+    let project = p.data["name"].clone();
+    let mut push = |score: u32, mut v: Value| {
+        if score > 0 {
+            v["project"] = project.clone();
+            out.push((score, v));
+        }
+    };
+    let joined = |v: &Value| str_list(v).join(" ");
+    for b in load_boards(p)? {
+        let b = &b.data;
+        let board = b["name"].clone();
+        let kind = if is_plan(b) {
+            "plan"
+        } else if is_notes(b) {
+            "notes"
+        } else if is_glossary(b) {
+            "glossary"
+        } else {
+            "kanban"
+        };
+        if !is_glossary(b) {
+            push(
+                search_score(tokens, &s(b, "name"), &s(b, "description")),
+                json!({ "kind": "board", "id": b["id"], "name": board, "boardKind": kind }),
+            );
+        }
+        let task_text = |t: &Value| {
+            let checklist: Vec<String> = t["checklist"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|c| s(c, "text"))
+                .collect();
+            format!(
+                "{} {} {}",
+                s(t, "description"),
+                joined(&t["labels"]),
+                checklist.join(" ")
+            )
+        };
+        let tasks = b["tasks"].as_object().cloned().unwrap_or_default();
+        for c in b["columns"].as_array().into_iter().flatten() {
+            for id in str_list(&c["taskIds"]) {
+                if let Some(t) = tasks.get(&id) {
+                    push(
+                        search_score(tokens, &s(t, "title"), &task_text(t)),
+                        json!({ "kind": "task", "id": t["id"], "title": t["title"], "board": board, "column": c["name"] }),
+                    );
+                }
+            }
+        }
+        for e in b["archive"].as_array().into_iter().flatten() {
+            let t = &e["task"];
+            push(
+                search_score(tokens, &s(t, "title"), &task_text(t)),
+                json!({ "kind": "task", "id": t["id"], "title": t["title"], "board": board, "archived": true }),
+            );
+        }
+        for n in b["notes"].as_array().into_iter().flatten() {
+            push(
+                search_score(
+                    tokens,
+                    &s(n, "title"),
+                    &format!("{} {}", s(n, "description"), joined(&n["tags"])),
+                ),
+                json!({ "kind": "note", "id": n["id"], "title": n["title"], "description": n["description"], "board": board }),
+            );
+        }
+        for t in b["terms"].as_array().into_iter().flatten() {
+            let text = format!("{} {} {}", s(t, "definition"), joined(&t["tags"]), s(t, "source"));
+            push(
+                search_score(tokens, &s(t, "term"), &text),
+                json!({ "kind": "term", "id": t["id"], "term": t["term"], "definition": t["definition"] }),
+            );
+        }
+        let plan = &b["plan"];
+        for (i, st) in plan["steps"].as_array().into_iter().flatten().enumerate() {
+            let step = format!("{}. {}", i + 1, s(st, "title"));
+            push(
+                search_score(tokens, &s(st, "title"), &s(st, "notes")),
+                json!({ "kind": "step", "id": st["id"], "title": st["title"], "number": i + 1, "board": board }),
+            );
+            let mut items = vec![];
+            flat_items(&st["items"], &mut items);
+            for it in items {
+                push(
+                    search_score(tokens, &s(it, "text"), &s(it, "reason")),
+                    json!({ "kind": "item", "id": it["id"], "text": it["text"], "state": it["state"],
+                            "board": board, "step": step, "stepId": st["id"] }),
+                );
+            }
+        }
+        for q in plan["questions"].as_array().into_iter().flatten() {
+            push(
+                search_score(tokens, &s(q, "text"), &s(q, "answer")),
+                json!({ "kind": "question", "id": q["id"], "text": q["text"], "resolved": q["resolved"], "board": board }),
+            );
+        }
+    }
+    for d in load_decisions(p)? {
+        let d = &d.data;
+        let text = format!(
+            "{} {} {} {}",
+            s(d, "why"),
+            s(d, "rejected"),
+            joined(&d["about"]),
+            joined(&d["tags"])
+        );
+        let mut v = json!({ "kind": "decision", "id": d["id"], "ref": decision_ref(d), "title": d["title"] });
+        if let Some(n) = d["replacedBy"].as_u64() {
+            v["replacedBy"] = json!(format!("D-{n}"));
+        }
+        push(
+            search_score(tokens, &format!("{} {}", decision_ref(d), s(d, "title")), &text),
+            v,
+        );
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------------------------- plans
 
 fn plan_board(p: &Proj, q: &str) -> R<BoardFile> {
@@ -1856,10 +2082,17 @@ fn new_glossary() -> Value {
     board
 }
 
-/// Writes a new board file and adds it to the project's board order.
+/// Writes a new board file and adds it to the project's board order, which lists the app sidebar's
+/// boards (the app's board count reads it): the glossary, which has its own entry, stays out.
 fn add_board(ctx: &Ctx, p: &mut Proj, board: &Value) -> R<BoardFile> {
     let path = boards_dir(p).join(format!("{}-{}.json", slugify(&s(board, "name")), s(board, "id")));
     ctx.write_json(&path, board)?;
+    if is_glossary(board) {
+        return Ok(BoardFile {
+            path,
+            data: board.clone(),
+        });
+    }
     if let Some(order) = p.data["boardOrder"].as_array_mut() {
         order.push(board["id"].clone());
     } else {
@@ -2015,11 +2248,41 @@ fn filter_issues(cache: &Value, a: &Value) -> Vec<(String, Value)> {
     out
 }
 
+/// The app's settings file; `None` when there is none yet. One that can't be read is an error, so
+/// it is never overwritten with what little an agent asked to change.
+fn read_app_config() -> R<Option<Value>> {
+    let path = vaultfs::config_file().ok_or("Can't find the Astali app's settings folder")?;
+    match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|e| format!("The Astali app's settings file can't be read ({e}); open the app to repair it")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Whether the vault is in a git repository, and whether its files are kept out of it.
 fn git_view(vault: &std::path::Path) -> Value {
     match crate::gitignore::status(vault) {
-        Some(st) => json!({ "repoRoot": st.repo_root, "gitignore": st.enabled }),
+        Some(st) => json!({ "repoRoot": st.repo_root, "gitignore": st.ignored }),
         None => Value::Null,
+    }
+}
+
+/// "vault" or "cache"; `true` from older clients means the whole vault.
+fn arg_ignore(v: Option<&Value>) -> R<Option<crate::gitignore::Ignore>> {
+    use crate::gitignore::Ignore;
+    match v {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => Ok(None),
+        Some(Value::Bool(true)) => Ok(Some(Ignore::Vault)),
+        Some(v) => match v.as_str().map(str::trim) {
+            Some("vault") => Ok(Some(Ignore::Vault)),
+            Some("cache") => Ok(Some(Ignore::Cache)),
+            Some("none") => Ok(None),
+            _ => Err(format!(
+                "Unknown gitignore choice {v}: use \"vault\", \"cache\" or \"none\""
+            )),
+        },
     }
 }
 
@@ -2036,8 +2299,9 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 return Err(format!("Not a folder: {}", path.display()));
             }
             let created = vaultfs::ensure_vault(&path, arg_str(a, "name"))?;
-            if a.get("gitignore").and_then(Value::as_bool) == Some(true) {
-                crate::gitignore::enable(&path)?;
+            let ignore = arg_ignore(a.get("gitignore"))?;
+            if let Some(mode) = ignore {
+                crate::gitignore::enable(&path, mode)?;
             }
             *ctx.fixed.borrow_mut() = Some(path.clone());
             ctx.source.set(Source::Created);
@@ -2051,16 +2315,39 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
         }
         "set_gitignore" => {
             let vault = ctx.vault()?;
-            let st = if a
-                .get("enabled")
-                .and_then(Value::as_bool)
-                .ok_or("enabled must be true or false")?
-            {
-                crate::gitignore::enable(&vault)?
-            } else {
-                crate::gitignore::disable(&vault)?
+            // `enabled` is what older clients send.
+            let choice = a
+                .get("ignore")
+                .or_else(|| a.get("enabled"))
+                .ok_or("Pass `ignore`: vault, cache or none")?;
+            let st = match arg_ignore(Some(choice))? {
+                Some(mode) => crate::gitignore::enable(&vault, mode)?,
+                None => crate::gitignore::disable(&vault)?,
             };
-            Ok(json!({ "gitignore": st.gitignore_path, "enabled": st.enabled, "entries": st.entries }))
+            let entries = st.ignored.map(|m| st.entries(m).to_vec()).unwrap_or_default();
+            Ok(json!({ "gitignore": st.gitignore_path, "ignored": st.ignored, "entries": entries }))
+        }
+        "get_settings" => {
+            let vault = ctx.vault().ok();
+            let config = read_app_config()?.unwrap_or_else(|| json!({}));
+            let mut v = crate::settings::view(&config, vault.as_deref());
+            v["vault"] = json!(vault.as_ref().map(|p| p.to_string_lossy()));
+            v["git"] = vault.as_deref().map(git_view).unwrap_or(Value::Null);
+            Ok(v)
+        }
+        "update_settings" => {
+            let vault = ctx.vault().ok();
+            let path = vaultfs::config_file().ok_or("Can't find the Astali app's settings folder")?;
+            let mut config = read_app_config()?.unwrap_or_else(|| json!({}));
+            let changed = crate::settings::update(&mut config, vault.as_deref(), a)?;
+            if !changed.is_empty() {
+                let text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+                vaultfs::write_atomic(&path, &text)?;
+            }
+            Ok(
+                json!({ "changed": changed, "settings": crate::settings::view(&config, vault.as_deref()),
+                       "git": vault.as_deref().map(git_view).unwrap_or(Value::Null) }),
+            )
         }
         "list_projects" => {
             let mut out = vec![];
@@ -2201,9 +2488,20 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
 
         "list_boards" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
-            Ok(
-                json!({ "project": p.data["name"], "boards": load_boards(&p)?.iter().map(|b| board_summary(&b.data)).collect::<Vec<_>>() }),
-            )
+            let (archived, boards): (Vec<BoardFile>, Vec<BoardFile>) = load_board_files(&p)?
+                .into_iter()
+                .partition(|b| is_archived_board(&b.data));
+            let mut out = json!({ "project": p.data["name"], "boards": boards.iter().map(|b| board_summary(&b.data)).collect::<Vec<_>>() });
+            if !archived.is_empty() {
+                out["archivedBoards"] = archived
+                    .iter()
+                    .map(|b| {
+                        let kind = b.data["kind"].as_str().unwrap_or("kanban");
+                        json!({ "id": b.data["id"], "name": b.data["name"], "kind": kind, "archivedAt": b.data["archivedAt"] })
+                    })
+                    .collect();
+            }
+            Ok(out)
         }
         "get_board" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
@@ -2331,6 +2629,39 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             }
             save_project(ctx, &mut p)?;
             Ok(json!(format!("Deleted board '{}'", s(&b.data, "name"))))
+        }
+        "archive_board" => {
+            let mut p = find_project(ctx, req_str(a, "project")?)?;
+            let mut b = find_board(&p, req_str(a, "board")?)?;
+            if is_glossary(&b.data) {
+                return Err("The glossary can't be archived: it is the project's fixed glossary entry".into());
+            }
+            b.data["archivedAt"] = json!(now_iso());
+            save_board(ctx, &mut b)?;
+            // Out of the board order too, which the app's board count reads.
+            let id = s(&b.data, "id");
+            if let Some(order) = p.data["boardOrder"].as_array_mut() {
+                order.retain(|v| v.as_str() != Some(&id));
+            }
+            save_project(ctx, &mut p)?;
+            Ok(json!(format!("Archived board '{}'", s(&b.data, "name"))))
+        }
+        "restore_board" => {
+            let mut p = find_project(ctx, req_str(a, "project")?)?;
+            let mut b = find_archived_board(&p, req_str(a, "board")?)?;
+            if let Some(o) = b.data.as_object_mut() {
+                o.remove("archivedAt");
+            }
+            save_board(ctx, &mut b)?;
+            // Back in the board order, at the end.
+            let id = b.data["id"].clone();
+            match p.data["boardOrder"].as_array_mut() {
+                Some(order) if !order.contains(&id) => order.push(id),
+                Some(_) => {}
+                None => p.data["boardOrder"] = json!([id]),
+            }
+            save_project(ctx, &mut p)?;
+            Ok(json!(format!("Restored board '{}'", s(&b.data, "name"))))
         }
 
         "create_column" => {
@@ -3013,6 +3344,35 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             Ok(json!({ "count": count, "shown": out.len(), "tasks": out }))
         }
 
+        "search" => {
+            let tokens: Vec<String> = term_key(req_str(a, "query")?)
+                .split_whitespace()
+                .map(String::from)
+                .collect();
+            if tokens.is_empty() {
+                return Err("`query` needs at least one word".into());
+            }
+            let kinds: Vec<String> = str_list(a.get("kinds").unwrap_or(&Value::Null));
+            if let Some(k) = kinds.iter().find(|k| !SEARCH_KINDS.contains(&k.as_str())) {
+                return Err(format!("Unknown kind '{k}'. Kinds: {}", SEARCH_KINDS.join(", ")));
+            }
+            let projects = match arg_str(a, "project").filter(|p| !p.trim().is_empty()) {
+                Some(q) => vec![find_project(ctx, q)?],
+                None => load_projects(ctx)?,
+            };
+            let limit = a.get("limit").and_then(Value::as_u64).filter(|l| *l > 0).unwrap_or(30) as usize;
+            let mut hits = vec![];
+            for p in &projects {
+                search_project(p, &tokens, &mut hits)?;
+            }
+            hits.retain(|(_, h)| kinds.is_empty() || kinds.contains(&s(h, "kind")));
+            // Stable: equal scores keep the order they were found in (project, then board order).
+            hits.sort_by(|(x, _), (y, _)| y.cmp(x));
+            let count = hits.len();
+            let results: Vec<Value> = hits.into_iter().take(limit).map(|(_, h)| h).collect();
+            Ok(json!({ "count": count, "shown": results.len(), "results": results }))
+        }
+
         "search_decisions" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
             let all = load_decisions(&p)?;
@@ -3655,6 +4015,77 @@ mod tests {
     }
 
     #[test]
+    fn search_finds_every_kind_and_ranks_titles_first() {
+        let vault = std::env::temp_dir().join(format!("astali-search-test-{}", super::new_id()));
+        std::fs::create_dir_all(vault.join("p").join("boards")).unwrap();
+        std::fs::write(
+            vault.join("p").join("project.json"),
+            json!({ "id": "p", "name": "P", "boardOrder": [] }).to_string(),
+        )
+        .unwrap();
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args).unwrap();
+        call("create_board", json!({ "project": "P", "name": "Work" }));
+        call(
+            "create_task",
+            json!({ "project": "P", "board": "Work", "title": "Write the parser" }),
+        );
+        call(
+            "create_task",
+            json!({ "project": "P", "board": "Work", "title": "Tokens", "description": "Feeds the parser" }),
+        );
+        call(
+            "create_plan",
+            json!({ "project": "P", "name": "Plan", "markdown": "## Lexer\n- [ ] Hook up the parser\n" }),
+        );
+        call(
+            "create_board",
+            json!({ "project": "P", "name": "Ideas", "kind": "notes" }),
+        );
+        call(
+            "create_note",
+            json!({ "project": "P", "board": "Ideas", "title": "Parser café" }),
+        );
+        call(
+            "add_decision",
+            json!({ "project": "P", "title": "Hand-written parser", "why": "Better errors." }),
+        );
+        call(
+            "create_term",
+            json!({ "project": "P", "term": "AST", "definition": "What the parser builds" }),
+        );
+
+        let found = call("search", json!({ "query": "parser" }));
+        assert_eq!(found["count"], 6);
+        let kinds: Vec<&str> = found["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["kind"].as_str().unwrap())
+            .collect();
+        for k in ["task", "item", "note", "decision", "term"] {
+            assert!(kinds.contains(&k), "{k} missing from {kinds:?}");
+        }
+        // Matches in a description or definition come after the titles.
+        let last: Vec<&str> = (4..6).map(|i| found["results"][i]["kind"].as_str().unwrap()).collect();
+        assert!(last.contains(&"term") && last.contains(&"task"), "{last:?}");
+        let item = found["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == "item")
+            .unwrap();
+        assert_eq!(item["step"], "1. Lexer");
+        // Accents and case don't matter; every word must match.
+        assert_eq!(call("search", json!({ "query": "CAFE parser" }))["count"], 1);
+        assert_eq!(call("search", json!({ "query": "parser zebra" }))["count"], 0);
+        let only = call("search", json!({ "query": "parser", "kinds": ["decision", "term"] }));
+        assert_eq!(only["count"], 2);
+        assert!(call_tool(&ctx, "search", &json!({ "query": "x", "kinds": ["nope"] })).is_err());
+        std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
     fn a_glossary_is_one_per_project_with_unique_terms() {
         let vault = std::env::temp_dir().join(format!("astali-glossary-test-{}", super::new_id()));
         std::fs::create_dir_all(vault.join("p").join("boards")).unwrap();
@@ -3675,6 +4106,10 @@ mod tests {
             json!({ "project": "P", "term": "MCP", "definition": "Model Context Protocol", "tags": ["ai"] }),
         )
         .unwrap();
+        // It has its own sidebar entry, so it stays out of the board order (the app's board count).
+        let project: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(vault.join("p").join("project.json")).unwrap()).unwrap();
+        assert_eq!(project["boardOrder"], json!([]));
         assert!(call(
             "create_board",
             json!({ "project": "P", "name": "Words", "kind": "glossary" })
@@ -3798,6 +4233,69 @@ mod tests {
         let fresh = super::new_board("B", "", None);
         assert_eq!(fresh["doneColumn"], fresh["columns"][2]["id"]);
         std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
+    fn archived_boards_are_out_of_reach_until_restored() {
+        let vault = std::env::temp_dir().join(format!("astali-board-archive-test-{}", super::new_id()));
+        let boards = vault.join("p").join("boards");
+        std::fs::create_dir_all(&boards).unwrap();
+        let write = |path: std::path::PathBuf, v: serde_json::Value| std::fs::write(path, v.to_string()).unwrap();
+        write(
+            vault.join("p").join("project.json"),
+            json!({ "id": "p", "name": "P", "boardOrder": ["one", "two"] }),
+        );
+        let board = |id: &str, name: &str| {
+            json!({ "id": id, "name": name, "columns": [{ "id": "todo", "name": "To do", "taskIds": ["t"] }],
+                    "tasks": { "t": { "id": "t", "title": format!("Task of {name}") } },
+                    "archive": [{ "task": { "id": "old", "title": "Old" }, "from": "todo", "at": "2026-01-01T00:00:00Z" }] })
+        };
+        write(boards.join("one.json"), board("one", "One"));
+        write(boards.join("two.json"), board("two", "Two"));
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args);
+
+        call("archive_board", json!({ "project": "P", "board": "Two" })).unwrap();
+        let order = || {
+            serde_json::from_str::<serde_json::Value>(
+                &std::fs::read_to_string(vault.join("p").join("project.json")).unwrap(),
+            )
+            .unwrap()["boardOrder"]
+                .clone()
+        };
+        assert_eq!(order(), json!(["one"]));
+        let listed = call("list_boards", json!({ "project": "P" })).unwrap();
+        assert_eq!(listed["boards"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["archivedBoards"][0]["name"], "Two");
+        // Nothing reaches it: reading, searching, moving a task onto it.
+        assert!(call("get_board", json!({ "project": "P", "board": "Two" }))
+            .unwrap_err()
+            .contains("archived"));
+        assert_eq!(
+            call("search_tasks", json!({ "project": "P", "query": "Task of" })).unwrap()["count"],
+            1
+        );
+        assert!(call(
+            "move_task",
+            json!({ "project": "P", "board": "One", "task": "t", "column": "To do", "to_board": "Two" })
+        )
+        .is_err());
+        // Its tasks and its own archive come back with it.
+        call("restore_board", json!({ "project": "P", "board": "two" })).unwrap();
+        assert_eq!(order(), json!(["one", "two"]));
+        let back = call("get_board", json!({ "project": "P", "board": "Two" })).unwrap();
+        assert_eq!(
+            (
+                back["archived"].clone(),
+                back["columns"][0]["tasks"][0]["title"].clone()
+            ),
+            (json!(1), json!("Task of Two"))
+        );
+        assert!(call("list_boards", json!({ "project": "P" }))
+            .unwrap()
+            .get("archivedBoards")
+            .is_none());
+        let _ = std::fs::remove_dir_all(&vault);
     }
 
     #[test]
@@ -3965,7 +4463,7 @@ mod tests {
             (r["created"].clone(), r["vaultName"].clone()),
             (json!(true), json!("Thesis"))
         );
-        assert_eq!(r["git"]["gitignore"], true);
+        assert_eq!(r["git"]["gitignore"], "vault");
         assert!(super::vaultfs::is_vault(&kb));
 
         // Later calls work in the new vault, and the .gitignore block follows its projects.
@@ -3976,7 +4474,12 @@ mod tests {
         let list = call("list_projects", json!({})).unwrap();
         assert_eq!(list["vaultSource"], "created in this session with create_vault");
 
-        call("set_gitignore", json!({ "enabled": false })).unwrap();
+        // Only the caches: one line, and the projects are committed.
+        let r = call("set_gitignore", json!({ "ignore": "cache" })).unwrap();
+        assert_eq!(r["ignored"], "cache");
+        assert_eq!(r["entries"], json!(["/docs/kb/*/.cache/"]));
+        assert!(call("set_gitignore", json!({ "ignore": "everything" })).is_err());
+        call("set_gitignore", json!({ "ignore": "none" })).unwrap();
         assert_eq!(std::fs::read_to_string(repo.join(".gitignore")).unwrap(), "target/\n");
         // An existing vault is used as it is.
         assert_eq!(

@@ -216,6 +216,11 @@ export interface Board {
    * kept with the column they left, to search and restore (D-8). Absent when there are none.
    */
   archive?: ArchivedTask[];
+  /**
+   * When the board was put in the project's boards archive. An archived board is kept apart from the
+   * others (`archivedBoards` in the store), out of reach until restored. Absent when it isn't archived.
+   */
+  archivedAt?: string;
   tasks: Record<string, Task>;
   createdAt: string;
   updatedAt: string;
@@ -344,6 +349,8 @@ export interface AppConfig {
   checkForUpdates: boolean;
   /** Vaults for which the "inside a git repo" suggestion was dismissed. */
   dismissedGitPrompts: string[];
+  /** Per vault tracked in git: sync (commit, pull, push) after this many changes made in the app. */
+  gitAutoSync: Record<string, number>;
   favoriteColors: FavoriteColor[];
 }
 
@@ -352,10 +359,15 @@ export interface GitStatus {
   repoRoot: string;
   gitignorePath: string;
   vaultRel: string;
-  /** True when Astali's managed block is present in the repo's .gitignore. */
-  enabled: boolean;
-  entries: string[];
+  /** What Astali's managed block in the repo's .gitignore ignores: the whole vault, only its caches, or nothing. */
+  ignored: GitIgnoreMode | null;
+  /** Lines the block holds (or would hold) for each choice. */
+  vaultEntries: string[];
+  cacheEntries: string[];
 }
+
+/** "vault" keeps every vault file out of the repository; "cache" only the caches, so boards are committed. */
+export type GitIgnoreMode = "vault" | "cache";
 
 /** Branch and working-tree summary of the vault's repository. */
 export interface RepoInfo {
@@ -370,12 +382,34 @@ export interface RepoInfo {
   modified: number;
   untracked: number;
   conflicted: number;
+  /** Changed files (paths from the repository root), at most 200; the counts above cover them all. */
+  files: ChangedFile[];
   /** Web page of the remote, e.g. { short: "owner/repo", url: "https://github.com/owner/repo" }. */
   remote: { short: string; url: string } | null;
   /** "owner:branch" to find the branch's pull request with; null unless it tracks a GitHub branch. */
   prHead: string | null;
   /** GitHub repos ("owner/repo") the pull request may target. */
   prRepos: string[];
+}
+
+export interface ChangedFile {
+  path: string;
+  /** Modified, Added, Deleted, Renamed, Untracked or Conflicted. */
+  status: "M" | "A" | "D" | "R" | "U" | "C";
+}
+
+/** Branches of the vault's repository; `remote` leaves out those with a local branch of the same name. */
+export interface GitBranches {
+  local: string[];
+  remote: string[];
+}
+
+/** What a sync did. With `conflicts`, the pull stopped on them and nothing was pushed. */
+export interface GitSyncResult {
+  committed: boolean;
+  pulled: boolean;
+  pushed: boolean;
+  conflicts: string[];
 }
 
 /** Open pull request for the vault repository's current branch. */
@@ -416,7 +450,16 @@ export interface HistoryEntry {
 }
 
 export type ProjectView =
-  | { kind: "board"; boardId: string; noteId?: string }
+  | {
+      kind: "board";
+      boardId: string;
+      /** A note to center on a notes board. */
+      noteId?: string;
+      /** A plan step or open question to scroll to. */
+      stepId?: string;
+      /** A task in the board's archive to show. */
+      archivedTaskId?: string;
+    }
   | { kind: "issues" }
   | { kind: "activity"; boardId?: string }
   | { kind: "tags"; tag?: TagRef }

@@ -145,6 +145,7 @@ export function IssuesView() {
         <label className="search">
           <Search size={15} />
           <input
+            data-local-search
             placeholder="Search title, #, label, author"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

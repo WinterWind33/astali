@@ -5,240 +5,227 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.9.0] - 2026-10-19
+
+### Added
+
+- **Git panel**: click the branch in the title bar to sync, pull, push and commit without leaving Astali.
+- **Sync** commits the vault, pulls and pushes in one click, publishing a new branch if needed.
+- Switch to any local or remote branch, or start a new one, from the git panel's branch name.
+- The git panel lists the files with uncommitted changes.
+- Commits take only the vault's files, unless you include the rest of the repository.
+- On a conflicting pull, choose to keep the incoming versions, keep yours, or undo the pull.
+- **Automatic sync**: Astali can sync by itself every few changes, from *Settings → Git*.
+- An AI agent can change Astali's settings for you with the MCP server's `get_settings` and `update_settings`.
+- **Boards archive**: archive a finished board from its menu; it waits, with its tasks, behind the archive button
+  next to *Boards*.
+- The MCP server archives and restores boards with `archive_board` and `restore_board`.
+- **Search**: press Ctrl+Shift+F (⌘⇧F), or click the search box in the title bar, to find anything in the project.
+  A result opens where it lives.
+- Search can look through every project of the vault at once.
+- Ctrl+F (⌘F) searches just the view or dialog you're in.
+- An AI agent can search everything the same way with the MCP server's `search` tool.
+- Git-ignore only Astali's cache, so your boards and projects are committed without the intermediate files.
+
+### Changed
+
+- The tutorials are easier to read: a short summary and a few points per page, with every page listed on the side.
+- *What's new* gives each entry more room and colors added, changed and fixed items apart.
+
+### Fixed
+
+- The home page's board count no longer counts the glossary.
+- Menus, pickers and the git panel close when you click elsewhere or switch windows.
 
 ## [1.8.0] - 2026-10-11
 
 ### Added
 
-- **Glossary**: keep the terms, acronyms and names a project uses, with what they mean, from *Glossary* in the
-  sidebar. Terms are listed A–Z with a search box, and each card shows the first two lines of its definition.
-- Glossary definitions stay short: 300 characters by default, changed in the project settings.
-- A glossary term can have tags and a source, a link or a book and page. A note can be promoted to a term.
+- **Glossary**: keep the terms, acronyms and names a project uses, with what they mean, from the sidebar.
+- Glossary definitions stay short, 300 characters unless you change it in the project settings.
+- A glossary term can have tags and a source, and a note can be promoted to a term.
 - The MCP server reads and edits the glossary with `search_terms`, `create_term`, `update_term` and `delete_term`.
-- An AI agent can make a new vault for you with the MCP server's `create_vault`, and keep its files out of the
-  repository's commits with `set_gitignore`.
-- Sort a column's tasks by priority, name, creation date or due date from its menu. It sorts once, so you can still
-  drag tasks into any order afterwards.
+- An AI agent can make a new vault with `create_vault` and keep it out of commits with `set_gitignore`.
+- Sort a column's tasks by priority, name, creation or due date from its menu.
 
 ### Changed
 
-- Tag columns leave out finished tasks, the ones in the done column.
-- A note can be blank, with no title and no text, as a marker or to fill in later.
-- Pinning a new note no longer opens the editor: the note goes on the board blank, so you can pin several in a row
-  and write them later.
-- The pointer stays an arrow over a note, and turns into a hand only while you drag it.
+- Tag columns leave out finished tasks.
+- A note can be blank, as a marker or to fill in later.
+- Pinning a new note no longer opens the editor, so you can pin several in a row.
+- The pointer turns into a hand over a note only while you drag it.
 
 ### Fixed
 
-- A task you're typing in a column is added when you click empty board space, as it is when you click anywhere else.
-  Before, on a board wider than the window, the box stayed open.
-- Undoing a change that moved several tasks within a column puts them back in their old order.
-- Promoting a note no longer turns the window blank when the vault has a kind of board this version doesn't know,
-  e.g. a glossary made with a newer Astali.
-- If something unexpected goes wrong, Astali shows what happened and a Reload button instead of a blank window.
-- A plan drafted in Markdown keeps a step whose title mentions a question, such as "Research question", instead of
-  turning its items into open questions.
-- On Linux, the AppImage's Settings → AI integration shows a command that keeps working after Astali restarts.
+- Clicking empty board space adds the task you're typing, even on boards wider than the window.
+- Undoing a move of several tasks within a column restores their order.
+- Promoting a note no longer blanks the window when the vault has a board kind this version doesn't know.
+- If something unexpected goes wrong, Astali shows the error and a Reload button instead of a blank window.
+- A Markdown plan keeps a step whose title mentions a question, such as "Research question".
+- On Linux, the AppImage's AI integration command keeps working after Astali restarts.
 
 ## [1.7.1] - 2026-10-07
 
 ### Fixed
 
-- On macOS, shortcut hints show ⌘ instead of Ctrl: ⌘+Enter saves a task or a note, and ⌘+F jumps to the decision search.
+- On macOS, shortcut hints show ⌘ instead of Ctrl.
 
 ## [1.7.0] - 2026-10-07
 
 ### Added
 
-- **Archive**: put finished tasks away with *Archive* in the task dialog, or a whole column at once with *Archive all
-  tasks* in its menu. The board's archive (the box in its header) lets you search them, restore them to their column,
-  or delete them for good. Archived tasks still count as done.
-- **Auto archive**: turn it on from the done column's menu to archive its tasks, and every task you move there from
-  then on, with a notice saying so. While it's on, neither restoring nor undoing puts a task back in that column.
-- The MCP server archives and restores tasks with `archive_tasks` and `restore_task`, and `search_tasks` still finds
-  archived ones.
-- **Automatic updates**: when a new version is out, an *Update* button appears in the title bar. It shows what's new
-  since your version, and installs and restarts only when you say so. This works from the next release on.
-- **Settings → Updates** checks for a new version on demand, and lets you turn off the check at startup.
+- **Archive**: put finished tasks away from the task dialog, or a whole column from its menu. The board's archive
+  lets you search, restore or delete them.
+- **Auto archive**: the done column can archive every task moved into it.
+- The MCP server archives and restores tasks with `archive_tasks` and `restore_task`.
+- **Automatic updates**: an *Update* button appears in the title bar when a new version is out, and installs only
+  when you say so.
+- *Settings → Updates* checks for a new version on demand.
 
 ### Changed
 
-- **New icon**: an "A" drawn by a pencil, with a tick for its crossbar, a note and a planner, in place of the old
-  board-like icon that looked too much like Trello's.
-- A new note on a notes board starts in the color you last gave a note there, instead of always yellow.
-- Settings' *What's new* is now part of the *Updates* tab.
-
-- Big projects stay fast: Astali rereads only the boards that changed on disk, instead of every board of the
-  project after each save.
-- History keeps far more: editing a note or a plan no longer copies the whole board into it, so busy notes boards
-  and plans stop pushing older changes out.
-- The MCP server's `get_board` lists the first 20 tasks of the done column (`done_limit` changes it) and
-  `search_tasks` the first 50 matches (`limit`), so big boards fit in an assistant's context. Both are much faster
-  on large projects, and `search_tasks` can look in a single `board`.
+- **New icon**: a pencil-drawn "A", in place of the old one that looked too much like Trello's.
+- A new note starts in the color you last used on that board.
+- *What's new* moved into *Settings → Updates*.
+- Big projects stay fast: Astali rereads only the boards that changed on disk.
+- History keeps far more, since editing a note or plan no longer copies the whole board.
+- The MCP server's `get_board` and `search_tasks` list fewer items by default, so big boards fit an assistant's
+  context.
 
 ### Security
 
-- The GitHub token is kept in your system's credential store (Credential Manager, Keychain or Secret Service)
-  instead of in Astali's settings file. A saved token moves there the first time you start this version.
-- Undo refuses a history entry that would write files outside the vault, so a vault someone else tampered with
-  can't use it to put files elsewhere on your computer.
-- The MCP server refuses GitHub repository names that aren't real ones, so a tampered project can't send your
-  token's requests to other GitHub endpoints.
+- The GitHub token is kept in your system's credential store instead of Astali's settings file.
+- Undo refuses history entries that would write outside the vault.
+- The MCP server refuses fake GitHub repository names, so a tampered project can't redirect your token.
 
 ### Fixed
 
-- Boards made before 1.6.0 no longer move their done column to the rightmost column when you add or drag columns.
+- Boards made before 1.6.0 keep their done column when you add or drag columns.
 
 ## [1.6.0] - 2026-10-06
 
 ### Added
 
-- **Task links**: a task can block, be blocked by, or relate to any other task of the project, on any board, from the
-  new *Links* section of the task dialog. Cards waiting on a task that isn't yet in its board's done column show
+- **Task links**: a task can block, or relate to, any other task of the project. Cards waiting on another show
   *Blocked*.
-- **Done column**: pick which column holds finished work with *Mark as done column* in its menu. The progress bar
-  and blocked tasks follow it wherever you move it, so reordering or adding columns no longer changes them. Tasks
-  are dragged into it rather than created there.
-- **Board order**: drag boards in the sidebar by the grip that shows on hover to reorder them, or sort them all at once by name, age or kind from
-  the new sort button beside *+*.
-- **Move to board**: send a task to a column of another board from *Move to board…* in the task dialog. Its links
-  come along, and tasks linked to it keep pointing at it.
-- **Vault names**: give a vault a name of its own from *Rename vault…* in its menu or in *Settings*, without renaming
-  its folder. The name is stored in the vault, so it follows it to other computers.
-- **Drag in plans**: drag a step by its grip to reorder it, and drag an item to move it within its step, to
-  another step, or under another item. Dropping an item on a step's header puts it at the end of that step.
-- **What's new**: after an update, a badge in the title bar shows what changed since the version you used before.
-  The last five releases are always in *Settings → What's new*.
-- The MCP server lists each task's links in `get_board` and changes them with `link_tasks` and `unlink_tasks`.
-- The MCP server marks the done column in `get_board` and can pick it with `update_column`.
+- **Done column**: pick which column holds finished work from its menu.
+- **Board order**: drag boards in the sidebar, or sort them by name, age or kind.
+- **Move to board**: send a task to another board, links and all.
+- **Vault names**: give a vault its own name without renaming its folder.
+- **Drag in plans**: drag steps to reorder them, and items within or across steps.
+- **What's new**: after an update, a title bar badge shows what changed.
+- The MCP server reads and changes task links with `get_board`, `link_tasks` and `unlink_tasks`.
+- The MCP server shows and picks the done column with `get_board` and `update_column`.
 - The MCP server reports the vault's name in `list_projects`.
-- The MCP server moves a task to another board with `move_task` and its new `to_board` argument.
+- The MCP server moves a task to another board with `move_task`'s `to_board`.
 
 ### Fixed
 
-- Updating with the Windows installer no longer unpins Astali from the taskbar: it now installs over the
-  previous version by default instead of uninstalling it first.
-- The MCP server no longer stays on the vault it was registered with: it uses the vault in the repository the
-  assistant runs in, or else the one open in Astali, and follows you when you switch. Re-register it once from
-  *Settings → AI integration*.
-- Renaming a column no longer leaves a stuck drag preview when you press Enter or type a space.
+- Updating with the Windows installer no longer unpins Astali from the taskbar.
+- The MCP server follows the vault you're working in instead of the one it was registered with. Re-register it once
+  from *Settings → AI integration*.
+- Renaming a column no longer leaves a stuck drag preview.
 
 ### Changed
 
-- *Settings → AI integration* can register the MCP server for every repository or just one, and shows which vault the
-  assistant will use. Asking the assistant to list projects tells you too.
-- The task dialog no longer saves as you type: edits wait for *Save* (or Ctrl+Enter), and *Cancel* asks before
-  dropping them.
+- *Settings → AI integration* registers the MCP server for every repository or just one.
+- The task dialog waits for *Save* (or Ctrl+Enter) instead of saving as you type.
 
 ## [1.5.0] - 2026-10-06
 
 ### Added
 
-- **Help**: a *?* button in the title bar opens a short guided tour of the app, one page per feature.
-- **GitHub token health**: Astali checks the saved GitHub token on startup and in Settings. An expired or revoked
-  token puts a red dot on the settings icon, and a working one shows when it expires.
-- **Notes boards**: *+ → Notes* makes an endless, zoomable board of post-its, each with a title, Markdown text, tags,
-  linked issues and a color. Notes have a per-board character limit, show up in Activity and the Tags view, and are
-  editable over MCP (`create_note`, `update_note`, `delete_note`).
-- **Promote**: a note can be turned into a task, a plan step, a note on another board or a decision. The note is
-  removed unless *Keep the note too* is ticked.
-- **Seasonal themes**: an opt-in switch in *Settings → Appearance* recolors the app for Halloween, Christmas and
-  Easter, in dark and light. Each season also adds a small festive scene to the vault and project lists.
+- **Help**: a *?* button in the title bar opens a short tour of the app.
+- **GitHub token health**: a red dot on the settings icon warns when the token expires or is revoked.
+- **Notes boards**: an endless, zoomable board of post-its with Markdown, tags, issues and colors.
+- The MCP server edits notes with `create_note`, `update_note` and `delete_note`.
+- **Promote**: turn a note into a task, a plan step, another note or a decision.
+- **Seasonal themes**: an opt-in look for Halloween, Christmas and Easter.
 
 ### Changed
 
-- Dialogs open centered in the window instead of near its top edge.
+- Dialogs open centered in the window.
 
 ## [1.4.1] - 2026-10-04
 
 ### Fixed
 
-- The Decisions view and plan boards are centered in wide windows instead of sticking to the left edge.
+- The Decisions view and plan boards are centered in wide windows.
 
 ## [1.4.0] - 2026-10-04
 
 ### Added
 
-- **Plan boards**: *+ → Plan* makes a board for an implementation plan, with a goal, linked issues, numbered steps
-  and open questions. Each step has Markdown notes and a nested checklist whose items are to do, done or skipped.
-- Plans can be created from a Markdown draft and copied back as Markdown, and an item or question can be recorded
-  as a decision.
-- MCP: plan tools (`create_plan`, `get_plan`, `update_plan`, `add_plan_step`, `add_plan_items`, …), and kanban-only
-  tools explain that a plan has no columns.
-- **Decisions** in the project sidebar: short notes on why the code is the way it is, numbered D-1, D-2… per
-  project. Each has a title, a why, an optional rejected alternative, the code it is about, tags and linked issues.
-- Decision search matches every word and ranks code references and titles first; a decision can be marked as
-  replaced by a newer one.
-- Decisions must fit a per-project character limit (500 by default), set in the project settings.
-- Decisions are recorded in Activity, can be undone, and share the project's tags.
-- MCP: `search_decisions`, `add_decision`, `update_decision` and `delete_decision`, with the same limit enforced.
+- **Plan boards**: an implementation plan with a goal, numbered steps, nested checklists and open questions.
+- Plans can be imported from Markdown and copied back as Markdown.
+- The MCP server creates, reads and updates plans (`create_plan`, `get_plan`, `update_plan_item`, …).
+- **Decisions**: short, numbered notes on why the code is the way it is, in the project sidebar.
+- Decision search matches every word, and a decision can be marked as replaced by a newer one.
+- Decisions stay under a character limit, 500 unless you change it in the project settings.
+- Decisions show in Activity, can be undone and share the project's tags.
+- The MCP server manages decisions with `search_decisions`, `add_decision`, `update_decision` and `delete_decision`.
 
 ### Changed
 
-- Tag fields suggest tags as colored chips with usage counts, navigable with the keyboard.
+- Tag fields suggest tags as colored chips you can pick with the keyboard.
 
 ### Fixed
 
-- The Windows installer now ends running Astali MCP servers itself instead of stopping on them.
-- Settings are never reset: they aren't saved before being read, and an unreadable file is kept aside.
-- Files keep fields this version doesn't know about instead of dropping them on the next edit.
-- `Esc` in a popover opened from a dialog closes just the popover.
-- The vault's own `AGENTS.md` guide is refreshed when it describes an older file format.
+- The Windows installer stops running MCP servers itself.
+- Settings are never reset, even when the file can't be read.
+- Files keep fields this version doesn't know about.
+- `Esc` in a popover closes just the popover, not its dialog.
+- The vault's `AGENTS.md` guide is refreshed when it's out of date.
 
 ## [1.3.0] - 2026-10-04
 
 ### Added
 
-- **Tag colors**: click a tag to pick its color; colors are stored per project and shown the same everywhere.
-- **Tag columns**: a column that shows the board's tasks carrying one or more tags. Dropping a task on it adds the
-  tags, and the tasks stay in their own columns.
-- **Tags view** in the project sidebar: every tag and GitHub label with its usage, where tags can be renamed,
-  recolored or removed across all tasks.
-- **Collapsible columns**: a column can shrink to a narrow strip showing its name and count.
+- **Tag colors**: click a tag to pick its color.
+- **Tag columns**: a column showing the board's tasks with some tags; dropping a task on it adds them.
+- **Tags view**: every tag and GitHub label with its usage, to rename, recolor or remove.
+- **Collapsible columns**: shrink a column to a narrow strip.
 - Tag suggestions in a task's tag field.
-- MCP: tag columns in `create_column`, `update_column` and `get_board`, and tag colors in `update_project`.
-- Astali is now licensed under the MIT License, shown in the installers before installing.
-- **About** tab in Settings with the app version, paths and license.
-- **Credits** tab in Settings listing every bundled third-party package with its license.
+- The MCP server supports tag columns and tag colors.
+- Astali is now licensed under the MIT License.
+- **About** tab in Settings with the version, paths and license.
+- **Credits** tab in Settings listing every bundled package and its license.
 
 ### Changed
 
-- Task "labels" are now called tags and look clearly different from GitHub labels.
-- Settings is split into tabs (General, Git, Connectors, AI integration, About).
+- Task "labels" are now called tags and look different from GitHub labels.
+- Settings is split into tabs.
 
 ## [1.2.0] - 2026-10-03
 
 ### Added
 
-- **Activity history with undo**: every change, from the app or an AI agent over MCP, is recorded with who made it.
-  Any entry can be undone, including deleted boards and projects.
-- MCP tools `list_history` and `undo`, so an agent can review and revert its own changes.
-- Bulk-add GitHub issues to a board, with checkboxes, range selection and *Select all*.
-- MCP tool `add_issues_as_tasks` to add many cached issues to a column in one write.
-- Repository info in the title bar: remote link, open pull request, branch, ahead/behind and changed files.
-- **Label columns**: a read-only column showing the issues that carry a GitHub label. It follows renames on GitHub
-  and turns into an ordinary column if the label is deleted.
-- Issues and labels are polled for changes while a project is open, using cheap conditional requests.
-- Syncing also caches repository labels, and the MCP tools support label columns.
+- **Activity history with undo**: every change, yours or an AI agent's, is recorded and can be undone.
+- The MCP server's `list_history` and `undo` let an agent review and revert its changes.
+- Add many GitHub issues to a board at once.
+- The MCP server's `add_issues_as_tasks` adds many issues in one go.
+- The title bar shows the repository's branch, pull request, ahead/behind and changed files.
+- **Label columns**: a read-only column of the issues carrying a GitHub label.
+- Issues and labels refresh by themselves while a project is open.
+- The MCP server supports label columns.
 
 ### Changed
 
-- Clicking **Astali** in the title bar returns to the welcome screen to choose a vault.
+- Clicking **Astali** in the title bar goes back to choosing a vault.
 
 ### Fixed
 
-- The Claude Code registration command in Settings now works when pasted into PowerShell.
+- The Claude Code registration command in Settings works in PowerShell.
 
 ## [1.1.0] - 2026-10-03
 
 ### Added
 
-- Recent vaults whose folder was moved or deleted are flagged on startup, with a **Remove** button.
+- Recent vaults that were moved or deleted are flagged, with a **Remove** button.
 
 ### Changed
 
-- A missing recent vault is flagged instead of silently dropped, so it can be re-checked later.
+- A missing recent vault is flagged instead of silently dropped.
 
 ## [1.0.0] - 2026-10-03
 
@@ -246,15 +233,14 @@ First stable release.
 
 ### Added
 
-- Local-first vault: projects, boards, columns and tasks stored as plain JSON, with an `AGENTS.md` guide for AI
-  agents.
-- Full create, edit and delete for projects, boards, columns and tasks, with drag and drop between columns.
-- Tasks with title, Markdown description, priority, labels, due date, checklist and linked GitHub issue.
-- Read-only GitHub integration: link repositories and add their cached issues to a board.
-- Live reload of external edits to the vault.
-- Any color for projects and columns, with presets, a custom picker and favorites.
-- Horizontal board scrolling by wheel or by dragging.
-- Dark, light or system theme, a custom title bar and keyboard shortcuts.
-- Built-in MCP server (`astali mcp`) for managing the vault from AI agents.
-- Git repository detection with an opt-in managed `.gitignore` block.
+- A local vault of projects, boards, columns and tasks stored as plain JSON files.
+- Create, edit, delete and drag projects, boards, columns and tasks.
+- Tasks with a Markdown description, priority, labels, due date, checklist and GitHub issue.
+- Read-only GitHub integration: add a linked repository's issues to a board.
+- Edits made to the vault from outside show up live.
+- Any color for projects and columns, with presets and favorites.
+- Scroll boards sideways with the wheel or by dragging.
+- Dark, light or system theme.
+- A built-in MCP server (`astali mcp`) so AI agents can manage the vault.
+- Opt-in `.gitignore` block when the vault is in a git repository.
 - Windows installers (MSI and NSIS).

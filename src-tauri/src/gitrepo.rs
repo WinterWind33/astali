@@ -24,6 +24,8 @@ pub struct RepoInfo {
     pub untracked: u32,
     /// Files with unresolved merge conflicts.
     pub conflicted: u32,
+    /// Changed files, at most `MAX_FILES` of them; the counts above cover them all.
+    pub files: Vec<ChangedFile>,
     /// Web page of the remote (the upstream's remote, else `origin`, else the first one).
     pub remote: Option<Remote>,
     /// "owner:branch" to look up the branch's pull request with; set when it tracks a GitHub branch.
@@ -31,6 +33,17 @@ pub struct RepoInfo {
     /// GitHub repos ("owner/repo") the pull request may be opened against.
     pub pr_repos: Vec<String>,
 }
+
+/// A file with uncommitted changes, path relative to the repository root.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ChangedFile {
+    pub path: String,
+    /// 'M'odified, 'A'dded, 'D'eleted, 'R'enamed, 'U'ntracked or 'C'onflicted.
+    pub status: char,
+}
+
+/// Keeps the snapshot small in repositories with thousands of untracked files.
+const MAX_FILES: usize = 200;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -151,19 +164,41 @@ fn parse(out: &str) -> RepoInfo {
             continue;
         }
         let mut it = line.splitn(3, ' ');
-        match (it.next(), it.next()) {
-            (Some("1" | "2"), Some(xy)) => {
+        let file = match (it.next(), it.next()) {
+            (Some(kind @ ("1" | "2")), Some(xy)) => {
                 let mut c = xy.chars();
-                if c.next().is_some_and(|x| x != '.') {
-                    info.staged += 1;
-                }
-                if c.next().is_some_and(|y| y != '.') {
-                    info.modified += 1;
-                }
+                let x = c.next().filter(|&x| x != '.');
+                let y = c.next().filter(|&y| y != '.');
+                info.staged += x.is_some() as u32;
+                info.modified += y.is_some() as u32;
+                // Ordinary entries have 8 fields before the path, renames 9 (and "\t<old path>" after it).
+                let path = line.splitn(if kind == "1" { 9 } else { 10 }, ' ').last();
+                let path = path.map(|p| p.split('\t').next().unwrap_or(p));
+                let status = match (kind, y.or(x)) {
+                    ("2", _) => 'R',
+                    (_, Some('A')) => 'A',
+                    (_, Some('D')) => 'D',
+                    _ => 'M',
+                };
+                path.map(|p| (p, status))
             }
-            (Some("u"), _) => info.conflicted += 1,
-            (Some("?"), _) => info.untracked += 1,
-            _ => {}
+            (Some("u"), _) => {
+                info.conflicted += 1;
+                line.splitn(11, ' ').nth(10).map(|p| (p, 'C'))
+            }
+            (Some("?"), _) => {
+                info.untracked += 1;
+                line.get(2..).map(|p| (p, 'U'))
+            }
+            _ => None,
+        };
+        if let Some((path, status)) = file.filter(|_| info.files.len() < MAX_FILES) {
+            // Paths with quotes or control characters come quoted; show them without the quotes.
+            let path = path.strip_prefix('"').and_then(|p| p.strip_suffix('"')).unwrap_or(path);
+            info.files.push(ChangedFile {
+                path: path.to_string(),
+                status,
+            });
         }
     }
     info
@@ -189,7 +224,11 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
 
 pub fn info(vault: &Path) -> Option<RepoInfo> {
     crate::gitignore::find_repo_root(vault)?;
-    let mut info = parse(&git(vault, &["status", "--porcelain=v2", "--branch"])?);
+    // quotePath=false: non-ASCII file names come through as they are, not octal-escaped.
+    let mut info = parse(&git(
+        vault,
+        &["-c", "core.quotePath=false", "status", "--porcelain=v2", "--branch"],
+    )?);
     // Exits 1 when no remote is configured; that just means there is no link to show.
     let remotes = git(vault, &["config", "--get-regexp", r"^remote\..*\.url$"]).unwrap_or_default();
     apply_remotes(&mut info, &remotes);
@@ -213,7 +252,7 @@ mod tests {
 2 R. N... 100644 100644 100644 a b R100 new.ts\told.ts
 u UU N... 100644 100644 100644 100644 a b c conflict.ts
 ? notes.txt
-? other.txt
+? other dir/
 ";
         assert_eq!(
             parse(out),
@@ -227,6 +266,20 @@ u UU N... 100644 100644 100644 100644 a b c conflict.ts
                 modified: 2,
                 untracked: 2,
                 conflicted: 1,
+                files: [
+                    ("src/a.ts", 'M'),
+                    ("src/b.ts", 'M'),
+                    ("src/c.ts", 'M'),
+                    ("new.ts", 'R'),
+                    ("conflict.ts", 'C'),
+                    ("notes.txt", 'U'),
+                    ("other dir/", 'U'),
+                ]
+                .map(|(path, status)| ChangedFile {
+                    path: path.into(),
+                    status
+                })
+                .to_vec(),
                 ..Default::default()
             }
         );

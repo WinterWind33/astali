@@ -201,7 +201,7 @@ function dropAt(
   return { hint: { kind: "row", id: d.id, zone }, drop: { stepId: d.stepId, ref: d.id, zone } };
 }
 
-export function PlanView({ boardId }: { boardId: string }) {
+export function PlanView({ boardId, focus }: { boardId: string; focus?: string }) {
   const board = useStore((s) => s.boards[boardId]?.board);
   const repos = useStore((s) => currentProject(s)?.project.repos ?? []);
   const [editing, setEditing] = useState<string | null>(null);
@@ -214,6 +214,20 @@ export function PlanView({ boardId }: { boardId: string }) {
   const [hint, setHint] = useState<DropHint>(null);
   const startY = useRef(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // A step or question opened from search: unfold it, scroll to it and flash it.
+  useEffect(() => {
+    if (!focus) return;
+    setCollapsed((c) => ({ ...c, [focus]: false }));
+    const frame = requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-plan-id="${window.CSS.escape(focus)}"]`);
+      if (!el) return;
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.classList.add("flash");
+      setTimeout(() => el.classList.remove("flash"), 1800);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focus]);
 
   if (!board?.plan) return null;
   const plan = board.plan;
@@ -580,6 +594,7 @@ function StepCard({
   return (
     <div
       ref={sortable.setNodeRef}
+      data-plan-id={step.id}
       style={{
         transform: CSS.Translate.toString(sortable.transform && { ...sortable.transform, x: 0 }),
         transition: sortable.transition,
@@ -936,7 +951,7 @@ function QuestionRow({
 }) {
   const [editingText, setEditingText] = useState<string | null>(null);
   return (
-    <div className={cx("plan-question", q.resolved && "resolved")}>
+    <div className={cx("plan-question", q.resolved && "resolved")} data-plan-id={q.id}>
       <div className="plan-item-row">
         <button
           className={cx("plan-check", q.resolved && "done")}

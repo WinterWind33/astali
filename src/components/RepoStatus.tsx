@@ -7,10 +7,13 @@ import {
   GitPullRequest,
   GitPullRequestDraft,
   Globe,
+  Loader2,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useStore } from "../lib/store";
 import type { RepoInfo } from "../lib/types";
-import { Github } from "./ui";
+import { GitPanel } from "./GitPanel";
+import { Github, Popover } from "./ui";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -41,11 +44,18 @@ function describe(r: RepoInfo): string {
 
 /**
  * Title-bar group for the vault's repository: link to the remote, the branch's open pull request
- * (if any) and the branch state. Renders nothing outside a repo.
+ * (if any) and the branch state, which opens the git panel. Renders nothing outside a repo.
  */
 export function RepoStatus() {
   const repo = useStore((s) => s.repo);
   const pr = useStore((s) => s.pr);
+  const busy = useStore((s) => s.gitBusy);
+  const conflicts = useStore((s) => s.gitConflicts);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  // The conflict dialog takes over from the panel.
+  useEffect(() => {
+    if (conflicts) setAnchor(null);
+  }, [conflicts]);
   if (!repo) return null;
 
   const changes = repo.staged + repo.modified + repo.untracked + repo.conflicted;
@@ -69,8 +79,21 @@ export function RepoStatus() {
           {pr.draft ? <GitPullRequestDraft size={14} /> : <GitPullRequest size={14} />}#{pr.number}
         </button>
       )}
-      <div className="repo-status" title={describe(repo)}>
-        {repo.branch ? <GitBranch size={14} /> : <GitCommitHorizontal size={14} />}
+      <button
+        className="repo-status"
+        title={`${describe(repo)}
+
+Click to sync, commit or switch branch`}
+        aria-expanded={!!anchor}
+        onClick={(e) => setAnchor(anchor ? null : e.currentTarget.getBoundingClientRect())}
+      >
+        {busy ? (
+          <Loader2 size={14} className="spin" />
+        ) : repo.branch ? (
+          <GitBranch size={14} />
+        ) : (
+          <GitCommitHorizontal size={14} />
+        )}
         <span className="repo-branch">{repo.branch ?? repo.commit ?? "HEAD"}</span>
         {repo.ahead > 0 && (
           <span className="repo-count">
@@ -90,7 +113,12 @@ export function RepoStatus() {
             {changes}
           </span>
         )}
-      </div>
+      </button>
+      {anchor && (
+        <Popover anchor={anchor} align="right" onClose={() => setAnchor(null)}>
+          <GitPanel repo={repo} />
+        </Popover>
+      )}
     </div>
   );
 }

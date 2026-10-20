@@ -5,17 +5,33 @@ import { dismissWhatsNew, useStore } from "../lib/store";
 import { cx } from "../lib/util";
 import { Markdown, Modal, ModalHeader } from "./ui";
 
+/** A release's body split at its "### Added" / "### Fixed"… headings; text before the first one has no kind. */
+function releaseSections(body: string): { kind: string | null; text: string }[] {
+  const out: { kind: string | null; text: string }[] = [{ kind: null, text: "" }];
+  for (const line of body.split("\n")) {
+    const m = /^###\s+(.+)$/.exec(line);
+    if (m) out.push({ kind: m[1].trim(), text: "" });
+    else out[out.length - 1].text += line + "\n";
+  }
+  return out.filter((s) => s.text.trim());
+}
+
 /** Releases with their notes, newest first. */
 export function ReleaseNotes({ releases }: { releases: Release[] }) {
   return (
     <div className="release-notes">
       {releases.map((r) => (
         <section key={r.version} className="release">
-          <h3>
-            {r.version === "Unreleased" ? "Unreleased" : `Version ${r.version}`}
-            {r.date && <span className="faint small"> · {r.date}</span>}
-          </h3>
-          <Markdown>{r.body}</Markdown>
+          <header className="release-head">
+            <h3>{r.version === "Unreleased" ? "Unreleased" : `Version ${r.version}`}</h3>
+            {r.date && <span className="faint small">{r.date}</span>}
+          </header>
+          {releaseSections(r.body).map((s, i) => (
+            <div key={i} className="release-section">
+              {s.kind && <span className={cx("release-kind", s.kind.toLowerCase())}>{s.kind}</span>}
+              <Markdown className="release-entries">{s.text}</Markdown>
+            </div>
+          ))}
         </section>
       ))}
     </div>

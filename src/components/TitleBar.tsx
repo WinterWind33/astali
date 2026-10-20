@@ -41,6 +41,7 @@ import type { Theme } from "../lib/types";
 import { colorHex } from "../lib/util";
 import { vaultName as nameOf } from "../lib/vault";
 import { RepoStatus } from "./RepoStatus";
+import { SearchButton } from "./SearchDialog";
 import { UpdateBadge } from "./UpdateBadge";
 import { Logo, Menu, type MenuItem } from "./ui";
 import { VaultNameDialog } from "./VaultNameDialog";
@@ -58,7 +59,15 @@ const SEASON_ICON: Record<Season, React.ReactNode> = {
   easter: <Egg size={15} />,
 };
 
-export function TitleBar({ onOpenSettings, onOpenHelp }: { onOpenSettings: () => void; onOpenHelp: () => void }) {
+export function TitleBar({
+  onOpenSettings,
+  onOpenHelp,
+  onOpenSearch,
+}: {
+  onOpenSettings: () => void;
+  onOpenHelp: () => void;
+  onOpenSearch: () => void;
+}) {
   const win = getCurrentWindow();
   const [maximized, setMaximized] = useState(false);
   const vault = useStore((s) => s.vault);
@@ -160,6 +169,7 @@ This folder can't be found. It may have been renamed, moved or deleted.`
         )}
       </div>
       <div className="titlebar-right">
+        {vault && <SearchButton onClick={onOpenSearch} />}
         <UpdateBadge />
         <WhatsNewBadge />
         <RepoStatus />

@@ -15,6 +15,7 @@ import {
   removePath,
   scheduleWrite,
   setWriteErrorHandler,
+  setWriteListener,
   writeNow,
 } from "./fs";
 import { GitHubError, fetchBranchPr, fetchRepoIssues, fetchRepoLabels, fetchTokenStatus, repoChanged } from "./github";
@@ -36,7 +37,10 @@ import type {
   DecisionEntry,
   GhIssue,
   GhLabel,
+  GitBranches,
+  GitIgnoreMode,
   GitStatus,
+  GitSyncResult,
   GlossaryTerm,
   HistoryEntry,
   RepoInfo,
@@ -88,6 +92,7 @@ const DEFAULT_CONFIG: AppConfig = {
   seasonalThemes: false,
   checkForUpdates: true,
   dismissedGitPrompts: [],
+  gitAutoSync: {},
   favoriteColors: [],
 };
 
@@ -111,6 +116,11 @@ interface State {
   route: Route;
   /** Boards of the currently open project, keyed by board id. */
   boards: Record<string, BoardEntry>;
+  /**
+   * The open project's archived boards, keyed by board id. They are kept out of `boards` so that
+   * nothing (the sidebar, moves, links, tags, Promote) can reach them until they are restored.
+   */
+  archivedBoards: Record<string, BoardEntry>;
   /** Decisions of the currently open project, keyed by decision id. */
   decisions: Record<string, DecisionEntry>;
   issues: IssueCache;
@@ -122,6 +132,10 @@ interface State {
   repo: RepoInfo | null;
   /** Open pull request for the current branch, when it tracks a GitHub branch that has one. */
   pr: BranchPr | null;
+  /** The git action running now ("Pulling…"), or null. One runs at a time. */
+  gitBusy: string | null;
+  /** Files a pull left in conflict, while Astali asks which side to keep; null otherwise. */
+  gitConflicts: string[] | null;
   /** The saved GitHub token's status; null without a token or before it is checked. */
   githubAuth: GithubAuth | null;
   /** Recent vaults whose folder was not found at the last check (renamed, moved or deleted). */
@@ -143,6 +157,7 @@ const initial: State = {
   projects: [],
   route: { name: "home" },
   boards: {},
+  archivedBoards: {},
   decisions: {},
   issues: { repos: {} },
   syncing: false,
@@ -150,6 +165,8 @@ const initial: State = {
   git: null,
   repo: null,
   pr: null,
+  gitBusy: null,
+  gitConflicts: null,
   githubAuth: null,
   missingVaults: [],
   whatsNew: null,
@@ -213,14 +230,38 @@ let configLoaded = false;
  * has no credential store (e.g. a Linux desktop without the Secret Service): then it stays in the file (D-7).
  */
 let tokenInFile = false;
-// Dev builds share the settings file with the installed app, which may be older and read the token only from there.
-const keepTokenInFile = () => tokenInFile || import.meta.env.DEV;
+const keepTokenInFile = () => tokenInFile;
+
+/** The settings file as we last saved or read it, to tell our own saves from outside changes. */
+let configOnDisk: string | null = null;
 
 async function saveConfig(config: AppConfig) {
   set({ config });
   if (!configLoaded) return;
   const { githubToken: _, ...rest } = config;
-  await invoke("save_app_config", { contents: JSON.stringify(keepTokenInFile() ? config : rest, null, 2) });
+  configOnDisk = JSON.stringify(keepTokenInFile() ? config : rest, null, 2);
+  await invoke("save_app_config", { contents: configOnDisk });
+}
+
+/**
+ * Picks up settings changed outside the app, by an AI agent through the MCP server's update_settings.
+ * The token stays as it is: it lives in the credential store, and only the app changes it.
+ */
+export async function reloadConfig() {
+  if (!configLoaded) return;
+  const raw = await invoke<string | null>("load_app_config").catch(() => null);
+  if (!raw || raw === configOnDisk) return;
+  let fresh: Partial<AppConfig>;
+  try {
+    fresh = JSON.parse(raw);
+  } catch {
+    return; // half-written, or broken by hand: the next save puts our settings back
+  }
+  configOnDisk = raw;
+  const { githubToken } = get().config;
+  const config = { ...DEFAULT_CONFIG, ...fresh, githubToken };
+  if (!Array.isArray(config.favoriteColors)) config.favoriteColors = [];
+  set({ config });
 }
 
 /** The saved GitHub token, moving one still in the settings file (before 1.7.0) to the credential store. */
@@ -336,6 +377,7 @@ export async function init() {
   try {
     const raw = await invoke<string | null>("load_app_config");
     firstRun = !raw;
+    configOnDisk = raw;
     if (raw) {
       try {
         // Settings this version doesn't know (from a newer one) are kept and saved back as they were.
@@ -406,8 +448,17 @@ export async function openVault(path: string) {
   if (get().vault) await flushWrites().catch(() => {});
   const name = await ensureVault(vault);
   const projects = await loadProjects(vault);
-  set({ vault, projects, route: { name: "home" }, boards: {}, decisions: {}, issues: { repos: {} } });
-  set({ repo: null, pr: null });
+  set({
+    vault,
+    projects,
+    route: { name: "home" },
+    boards: {},
+    archivedBoards: {},
+    decisions: {},
+    issues: { repos: {} },
+  });
+  set({ repo: null, pr: null, gitConflicts: null });
+  autoSyncChanges = 0;
   prLookup = { key: "", at: 0 };
   await Promise.all([refreshGit(), refreshRepo()]);
   const { config } = get();
@@ -446,11 +497,13 @@ export async function closeVault() {
     projects: [],
     route: { name: "home" },
     boards: {},
+    archivedBoards: {},
     decisions: {},
     issues: { repos: {} },
     git: null,
     repo: null,
     pr: null,
+    gitConflicts: null,
   });
   await saveConfig({ ...get().config, lastVault: null });
 }
@@ -498,12 +551,20 @@ async function refreshPr(repo: RepoInfo | null) {
   }
 }
 
-export async function setGitIgnored(ignored: boolean) {
+/** Sets what the .gitignore block ignores; null removes the block. */
+export async function setGitIgnored(mode: GitIgnoreMode | null) {
   const vault = requireVault();
   try {
-    const git = await invoke<GitStatus>(ignored ? "git_ignore_enable" : "git_ignore_disable", { vault });
+    const git = await invoke<GitStatus>(mode ? "git_ignore_enable" : "git_ignore_disable", { vault, mode });
     set({ git });
-    toast(ignored ? "Astali files added to .gitignore" : "Astali block removed from .gitignore", "success");
+    toast(
+      mode === "vault"
+        ? "The vault is now git-ignored"
+        : mode === "cache"
+          ? "Astali's caches are now git-ignored"
+          : "Astali block removed from .gitignore",
+      "success",
+    );
   } catch (e) {
     toast(`Could not update .gitignore: ${e}`, "error");
   }
@@ -513,6 +574,159 @@ export function dismissGitPrompt() {
   const { config, vault } = get();
   if (vault && !config.dismissedGitPrompts.includes(vault))
     saveConfig({ ...config, dismissedGitPrompts: [...config.dismissedGitPrompts, vault] });
+}
+
+// ---------------------------------------------------------------- git actions
+
+/** Whether the vault's own files go into the repository's commits (it is in one, and not wholly git-ignored). */
+export const vaultTracked = (s: State = get()) => !!s.git && s.git.ignored !== "vault";
+
+export const SYNC_MESSAGE = "Update Astali boards";
+
+/**
+ * Runs one git action with `busy` shown, after our pending edits are on disk. A failure is shown as
+ * a toast starting with `failed`, and returns null.
+ */
+async function gitAction<T>(
+  busy: string,
+  failed: string,
+  fn: (vault: string) => Promise<T>,
+): Promise<{ value: T } | null> {
+  const vault = requireVault();
+  if (get().gitBusy) return null;
+  set({ gitBusy: busy });
+  try {
+    await flushWrites().catch(() => {});
+    return { value: await fn(vault) };
+  } catch (e) {
+    toast(`${failed}: ${e}`, "error");
+    return null;
+  } finally {
+    if (get().vault === vault) set({ gitBusy: null });
+    refreshRepo();
+  }
+}
+
+export const listBranches = () => invoke<GitBranches>("git_branches", { vault: requireVault() });
+
+/** Switches to a local branch, or to a new one tracking the remote branch `branch` ("origin/x"). */
+export async function switchBranch(branch: string, remote = false) {
+  const name = remote ? branch.slice(branch.indexOf("/") + 1) : branch;
+  const r = await gitAction("Switching branch…", "Could not switch branch", (vault) =>
+    invoke("git_checkout", { vault, branch, remote }),
+  );
+  if (r) toast(`Switched to ${name}`, "success");
+  return !!r;
+}
+
+export async function createBranch(name: string) {
+  const r = await gitAction("Creating branch…", "Could not create the branch", (vault) =>
+    invoke("git_create_branch", { vault, name }),
+  );
+  if (r) toast(`Created and switched to ${name.trim()}`, "success");
+  return !!r;
+}
+
+/** Commits the vault's files, or every change in the repository with `all`. */
+export async function gitCommit(message: string, all: boolean) {
+  const r = await gitAction("Committing…", "Could not commit", (vault) =>
+    invoke<boolean>("git_commit", { vault, message, all }),
+  );
+  if (r) toast(r.value ? "Committed" : "Nothing to commit", r.value ? "success" : "info");
+  return !!r?.value;
+}
+
+export async function gitPull() {
+  const r = await gitAction("Pulling…", "Could not pull", (vault) => invoke<string[]>("git_pull", { vault }));
+  if (!r) return;
+  syncAfterConflicts = false;
+  if (r.value.length) set({ gitConflicts: r.value });
+  else toast("Pulled", "success");
+}
+
+export async function gitPush() {
+  const r = await gitAction("Pushing…", "Could not push", (vault) => invoke<boolean>("git_push", { vault }));
+  if (r) toast(r.value ? "Pushed" : "This repository has no remote to push to", r.value ? "success" : "info");
+}
+
+/** Commits the vault's files, pulls and pushes. `auto` (after N changes) only speaks up when something is wrong. */
+export async function quickSync(auto = false) {
+  const r = await gitAction(
+    auto ? "Syncing automatically…" : "Syncing…",
+    auto ? "Automatic sync failed" : "Could not sync",
+    (vault) => invoke<GitSyncResult>("git_sync", { vault, message: SYNC_MESSAGE }),
+  );
+  if (!r) return;
+  const { committed, pulled, pushed, conflicts } = r.value;
+  syncAfterConflicts = conflicts.length > 0;
+  if (conflicts.length) return set({ gitConflicts: conflicts });
+  if (auto) return;
+  const did = [committed && "committed", pulled && "pulled", pushed && "pushed"].filter(Boolean).join(", ");
+  toast(did ? `Synced: ${did}` : "Nothing to sync: no remote, and no changes to the vault", did ? "success" : "info");
+}
+
+/** Lists the conflicts of an unfinished merge, so Astali can ask which side to keep. */
+export async function showConflicts() {
+  syncAfterConflicts = false;
+  const files = await invoke<string[]>("git_conflicts", { vault: requireVault() }).catch(() => []);
+  set({ gitConflicts: files });
+}
+
+export const closeConflicts = () => set({ gitConflicts: null });
+
+/** Set while the conflicts on screen stopped a sync, which then still has to push. */
+let syncAfterConflicts = false;
+
+/** Keeps one side of every conflicted file and finishes the merge; "abort" undoes the pull instead. */
+export async function resolveConflicts(keep: "incoming" | "local" | "abort") {
+  const r =
+    keep === "abort"
+      ? await gitAction("Undoing the pull…", "Could not undo the pull", (vault) => invoke("git_abort_merge", { vault }))
+      : await gitAction("Settling conflicts…", "Could not settle the conflicts", (vault) =>
+          invoke("git_resolve", { vault, keep }),
+        );
+  if (!r) return;
+  set({ gitConflicts: null });
+  toast(
+    keep === "abort" ? "Pull undone" : keep === "incoming" ? "Kept the incoming versions" : "Kept your versions",
+    "success",
+  );
+  if (keep !== "abort" && syncAfterConflicts) await gitPush();
+  syncAfterConflicts = false;
+}
+
+export function setAutoSync(every: number) {
+  const vault = requireVault();
+  const { [vault]: _, ...rest } = get().config.gitAutoSync;
+  saveConfig({ ...get().config, gitAutoSync: every > 0 ? { ...rest, [vault]: every } : rest });
+  autoSyncChanges = 0;
+}
+
+// Automatic sync counts changes made in the app: writes less than a second apart are one change (a
+// drag can write two boards). Once there are enough, it syncs when the edits pause for a few seconds.
+const AUTO_SYNC_IDLE = 4000;
+let autoSyncChanges = 0;
+let lastChangeAt = 0;
+let autoSyncTimer = 0;
+
+setWriteListener((path) => {
+  const s = get();
+  const every = s.vault ? s.config.gitAutoSync[s.vault] : 0;
+  if (!every || !vaultTracked(s) || !normPath(path).startsWith(normPath(s.vault!) + "/")) return;
+  if (Date.now() - lastChangeAt > 1000) autoSyncChanges++;
+  lastChangeAt = Date.now();
+  if (autoSyncChanges < every) return;
+  clearTimeout(autoSyncTimer);
+  autoSyncTimer = window.setTimeout(runAutoSync, AUTO_SYNC_IDLE);
+});
+
+function runAutoSync() {
+  const s = get();
+  // Another git action is running: try again once it's over. Unsettled conflicts wait for the user.
+  if (s.gitBusy) return void (autoSyncTimer = window.setTimeout(runAutoSync, AUTO_SYNC_IDLE));
+  if (!s.vault || s.gitConflicts || s.repo?.conflicted) return;
+  autoSyncChanges = 0;
+  quickSync(true);
 }
 
 export function forgetRecentVault(path: string) {
@@ -627,15 +841,60 @@ export interface TagChange {
   terms: number;
 }
 
+/*
+ * Renaming or deleting a tag reaches every board of the project, archived ones too: they are out of
+ * reach until restored (D-16), but they must not come back with tags that no longer exist.
+ */
+
+/** Every board of the open project, archived ones included. */
+const everyBoard = () => [...Object.values(get().boards), ...Object.values(get().archivedBoards)].map((e) => e.board);
+
+/** Edits a board wherever it is kept, among the boards or the archived ones. Only for tag changes. */
+function patchAnyBoard(boardId: string, fn: (b: Board) => Board) {
+  const key = get().boards[boardId] ? "boards" : get().archivedBoards[boardId] ? "archivedBoards" : null;
+  if (!key) return;
+  const entry = get()[key][boardId];
+  const next: BoardEntry = { ...entry, board: { ...fn(entry.board), updatedAt: now() } };
+  set((s) => ({ [key]: { ...s[key], [boardId]: next } }));
+  persistBoard(next);
+}
+
+/**
+ * Rewrites the tags of every task carrying `tag`, archived tasks included, and with `columns` the
+ * tags of tag columns; returns how many tasks changed.
+ */
+function retagTasks(tag: string, fn: (tags: string[]) => string[], columns?: (c: Column) => Column) {
+  let changed = 0;
+  for (const board of everyBoard()) {
+    const ids = Object.keys(board.tasks).filter((id) => hasTag(board.tasks[id], tag));
+    const archived = (board.archive ?? []).filter((a) => hasTag(a.task, tag)).length;
+    const cols = !!columns && board.columns.some((c) => columns(c) !== c);
+    if (!ids.length && !archived && !cols) continue;
+    changed += ids.length + archived;
+    patchAnyBoard(board.id, (b) => {
+      const retag = (t: Task) => (hasTag(t, tag) ? { ...t, labels: fn(t.labels), updatedAt: now() } : t);
+      const tasks = { ...b.tasks };
+      for (const id of ids) tasks[id] = retag(tasks[id]);
+      return {
+        ...b,
+        tasks,
+        columns: columns ? b.columns.map(columns) : b.columns,
+        archive: b.archive?.map((a) => ({ ...a, task: retag(a.task) })),
+      };
+    });
+  }
+  return changed;
+}
+
 /** Rewrites the tags of every note carrying `tag`; returns how many changed. */
 function retagNotes(tag: string, fn: (tags: string[]) => string[]) {
   let changed = 0;
-  for (const { board } of Object.values(get().boards)) {
+  for (const board of everyBoard()) {
     const has = (n: Note) => n.tags.some((t) => tagKey(t) === tagKey(tag));
     const n = board.notes?.filter(has).length ?? 0;
     if (!n) continue;
     changed += n;
-    patchBoard(board.id, (b) => ({
+    patchAnyBoard(board.id, (b) => ({
       ...b,
       notes: b.notes!.map((x) => (has(x) ? { ...x, tags: fn(x.tags), updatedAt: now() } : x)),
     }));
@@ -683,39 +942,6 @@ export function renameTag(from: string, to: string): TagChange {
   const p = currentProject();
   const name = to.trim();
   if (!p || !name || from === name) return { tasks: 0, decisions: 0, notes: 0, terms: 0 };
-  let changed = 0;
-  for (const { board } of Object.values(get().boards)) {
-    const ids = Object.keys(board.tasks).filter((id) => hasTag(board.tasks[id], from));
-    const cols = board.columns.some(
-      (c) => c.source?.kind === "tags" && c.source.tags.some((g) => tagKey(g) === tagKey(from)),
-    );
-    if (!ids.length && !cols) continue;
-    changed += ids.length;
-    patchBoard(board.id, (b) => {
-      const tasks = { ...b.tasks };
-      for (const id of ids) {
-        const t = tasks[id];
-        const labels: string[] = [];
-        for (const l of t.labels) {
-          const next = tagKey(l) === tagKey(from) ? name : l;
-          if (!labels.some((x) => tagKey(x) === tagKey(next))) labels.push(next);
-        }
-        tasks[id] = { ...t, labels, updatedAt: now() };
-      }
-      const columns = b.columns.map((c) => {
-        if (c.source?.kind !== "tags") return c;
-        const old = c.source;
-        if (!old.tags.some((g) => tagKey(g) === tagKey(from))) return c;
-        const tags = old.tags
-          .map((g) => (tagKey(g) === tagKey(from) ? name : g))
-          .filter((g, i, a) => a.findIndex((x) => tagKey(x) === tagKey(g)) === i);
-        const source = { ...old, tags };
-        // A column still named after its tags follows the rename.
-        return { ...c, source, name: c.name === tagColumnName(old) ? tagColumnName(source) : c.name };
-      });
-      return { ...b, tasks, columns };
-    });
-  }
   const retag = (tags: string[]) => {
     const out: string[] = [];
     for (const t of tags) {
@@ -724,6 +950,14 @@ export function renameTag(from: string, to: string): TagChange {
     }
     return out;
   };
+  const changed = retagTasks(from, retag, (c) => {
+    if (c.source?.kind !== "tags") return c;
+    const old = c.source;
+    if (!old.tags.some((g) => tagKey(g) === tagKey(from))) return c;
+    const source = { ...old, tags: retag(old.tags) };
+    // A column still named after its tags follows the rename.
+    return { ...c, source, name: c.name === tagColumnName(old) ? tagColumnName(source) : c.name };
+  });
   const decisions = retagDecisions(from, retag);
   const notes = retagNotes(from, retag);
   const terms = retagTerms(from, retag);
@@ -743,23 +977,8 @@ export function renameTag(from: string, to: string): TagChange {
 export function deleteTag(tag: string): TagChange {
   const p = currentProject();
   if (!p) return { tasks: 0, decisions: 0, notes: 0, terms: 0 };
-  let changed = 0;
-  for (const { board } of Object.values(get().boards)) {
-    const ids = Object.keys(board.tasks).filter((id) => hasTag(board.tasks[id], tag));
-    if (!ids.length) continue;
-    changed += ids.length;
-    patchBoard(board.id, (b) => {
-      const tasks = { ...b.tasks };
-      for (const id of ids)
-        tasks[id] = {
-          ...tasks[id],
-          labels: tasks[id].labels.filter((l) => tagKey(l) !== tagKey(tag)),
-          updatedAt: now(),
-        };
-      return { ...b, tasks };
-    });
-  }
   const drop = (tags: string[]) => tags.filter((t) => tagKey(t) !== tagKey(tag));
+  const changed = retagTasks(tag, drop);
   const decisions = retagDecisions(tag, drop);
   const notes = retagNotes(tag, drop);
   const terms = retagTerms(tag, drop);
@@ -783,7 +1002,15 @@ export async function deleteProject(id: string) {
 }
 
 export function goHome() {
-  set({ route: { name: "home" }, boards: {}, decisions: {}, issues: { repos: {} } });
+  set({ route: { name: "home" }, boards: {}, archivedBoards: {}, decisions: {}, issues: { repos: {} } });
+}
+
+/** Splits board entries into the project's boards and its archived ones. */
+function splitArchived(all: Record<string, BoardEntry>) {
+  const boards: Record<string, BoardEntry> = {};
+  const archivedBoards: Record<string, BoardEntry> = {};
+  for (const [id, e] of Object.entries(all)) (e.board.archivedAt ? archivedBoards : boards)[id] = e;
+  return { boards, archivedBoards };
 }
 
 /** Board files of a project, by name. */
@@ -813,12 +1040,19 @@ export async function openProject(id: string, view?: ProjectView) {
   const vault = requireVault();
   const entry = get().projects.find((p) => p.project.id === id);
   if (!entry) return;
-  const [boards, decisions, issues] = await Promise.all([
+  const [all, decisions, issues] = await Promise.all([
     readBoards(vault, entry.dir),
     loadDecisions(vault, entry.dir),
     loadIssueCache(vault, entry.dir),
   ]);
-  set({ boards, decisions, issues, route: { name: "project", projectId: id, view: { kind: "empty" } } });
+  const split = splitArchived(all);
+  set({ ...split, decisions, issues, route: { name: "project", projectId: id, view: { kind: "empty" } } });
+  // The board order lists the sidebar's boards, which the project's board count reads: the glossary
+  // and archived boards stay out of it (older versions put the glossary in).
+  const outOfOrder = (b: string) =>
+    !!split.archivedBoards[b] || (!!split.boards[b] && isGlossary(split.boards[b].board));
+  if (entry.project.boardOrder.some(outOfOrder))
+    patchProject(id, (pr) => ({ ...pr, boardOrder: pr.boardOrder.filter((b) => !outOfOrder(b)) }));
   // Follows label renames picked up while the project was closed (e.g. by an MCP sync).
   reconcileLabelColumns(issues, issues);
   lastPoll = Date.now();
@@ -903,7 +1137,7 @@ function ensureGlossary(): string | null {
   const entry: BoardEntry = { board, file: boardFileName(board) };
   set((s) => ({ boards: { ...s.boards, [board.id]: entry } }));
   persistBoard(entry);
-  patchProject(p.project.id, (pr) => ({ ...pr, boardOrder: [...pr.boardOrder, board.id] }));
+  // Not in `boardOrder`: that lists the sidebar's boards, which the project's board count reads.
   return board.id;
 }
 
@@ -1009,23 +1243,77 @@ export function updateBoardDescription(boardId: string, description: string) {
   patchBoard(boardId, (b) => ({ ...b, description }));
 }
 
+/** Deletes a board, or an archived one. */
 export async function deleteBoard(boardId: string) {
   const p = currentProject();
-  const entry = get().boards[boardId];
+  const entry = get().boards[boardId] ?? get().archivedBoards[boardId];
   if (!p || !entry) return;
   const path = boardFile(requireVault(), p.dir, entry.file);
   cancelWrites(path);
   await removePath(path);
   const boards = { ...get().boards };
+  const archivedBoards = { ...get().archivedBoards };
   delete boards[boardId];
-  set({ boards });
+  delete archivedBoards[boardId];
+  set({ boards, archivedBoards });
   patchProject(p.project.id, (pr) => ({ ...pr, boardOrder: pr.boardOrder.filter((id) => id !== boardId) }));
+  leaveBoard(boardId);
+  toast(`Deleted board “${entry.board.name}”`);
+}
+
+/** Shows the first board instead when `boardId` is the one open. */
+function leaveBoard(boardId: string) {
   const r = get().route;
   if (r.name === "project" && r.view.kind === "board" && r.view.boardId === boardId) {
     const first = sidebarBoards()[0];
     setView(first ? { kind: "board", boardId: first.id } : { kind: "empty" });
   }
-  toast(`Deleted board “${entry.board.name}”`);
+}
+
+/** The open project's archived boards, most recently archived first. */
+export const archivedBoardList = (s: State = get()) =>
+  Object.values(s.archivedBoards)
+    .map((e) => e.board)
+    .sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+
+/**
+ * Puts a board in the project's boards archive, or brings it back. The file stays where it is, with
+ * its tasks and its own task archive; only `archivedAt` changes, so history and undo cover it. The
+ * board also leaves `boardOrder`, which the project's board count reads, and a restore puts it back
+ * at the end.
+ */
+function setBoardArchived(boardId: string, archived: boolean) {
+  const s = get();
+  const p = currentProject(s);
+  const entry = (archived ? s.boards : s.archivedBoards)[boardId];
+  if (!p || !entry || isGlossary(entry.board)) return null;
+  const { archivedAt: _, ...rest } = entry.board;
+  const board: Board = archived ? { ...rest, archivedAt: now(), updatedAt: now() } : { ...rest, updatedAt: now() };
+  const next: BoardEntry = { ...entry, board };
+  const boards = { ...s.boards };
+  const archivedBoards = { ...s.archivedBoards };
+  delete boards[boardId];
+  delete archivedBoards[boardId];
+  (archived ? archivedBoards : boards)[boardId] = next;
+  set({ boards, archivedBoards });
+  persistBoard(next);
+  patchProject(p.project.id, (pr) => {
+    const order = pr.boardOrder.filter((id) => id !== boardId);
+    return { ...pr, boardOrder: archived ? order : [...order, boardId] };
+  });
+  return next.board;
+}
+
+export function archiveBoard(boardId: string) {
+  const b = setBoardArchived(boardId, true);
+  if (!b) return;
+  leaveBoard(boardId);
+  toast(`Archived “${b.name}”. Find it under the archive button next to Boards.`);
+}
+
+export function restoreBoard(boardId: string) {
+  const b = setBoardArchived(boardId, false);
+  if (b) toast(`Restored “${b.name}”`, "success");
 }
 
 export function reorderBoards(order: string[]) {
@@ -1660,7 +1948,9 @@ export async function refreshFromDisk(changed: string[]) {
     const stale = (file: string) => everything || touched.has(file.toLowerCase());
     const listed = await listBoardFiles(vault, p.dir);
     const fresh = await readBoards(vault, p.dir, listed.filter(stale));
-    const current = get().boards;
+    // Archived boards are merged with the others, then split again: an archive, a restore or an undo
+    // of either made outside the app moves a board from one side to the other.
+    const current = { ...get().archivedBoards, ...get().boards };
     const merged: Record<string, BoardEntry> = {};
     for (const [id, e] of Object.entries(current)) {
       if (!stale(e.file) && listed.includes(e.file)) merged[id] = e;
@@ -1674,12 +1964,21 @@ export async function refreshFromDisk(changed: string[]) {
     for (const [id, e] of Object.entries(current)) {
       if (!merged[id] && hasPendingWrite(boardFile(vault, p.dir, e.file))) merged[id] = e;
     }
-    set({ boards: merged });
-    // Boards created on disk by someone else are appended to the sidebar order.
-    const missing = Object.keys(merged).filter((id) => !p.project.boardOrder.includes(id));
-    if (missing.length) patchProject(p.project.id, (pr) => ({ ...pr, boardOrder: [...pr.boardOrder, ...missing] }));
+    const split = splitArchived(merged);
+    set(split);
+    // Boards created (or restored) on disk by someone else are appended to the sidebar order, and
+    // boards archived there leave it (an undo can change a board file without its project.json).
+    const order = p.project.boardOrder;
+    const outOfOrder = (id: string) =>
+      !!split.archivedBoards[id] || (!!split.boards[id] && isGlossary(split.boards[id].board));
+    const missing = Object.keys(split.boards).filter((id) => !order.includes(id) && !outOfOrder(id));
+    if (missing.length || order.some(outOfOrder))
+      patchProject(p.project.id, (pr) => ({
+        ...pr,
+        boardOrder: [...pr.boardOrder.filter((id) => !outOfOrder(id)), ...missing],
+      }));
     const r = get().route;
-    if (r.name === "project" && r.view.kind === "board" && !merged[r.view.boardId]) {
+    if (r.name === "project" && r.view.kind === "board" && !get().boards[r.view.boardId]) {
       const first = sidebarBoards()[0];
       setView(first ? { kind: "board", boardId: first.id } : { kind: "empty" });
     }

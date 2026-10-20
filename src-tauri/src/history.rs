@@ -826,6 +826,7 @@ fn field_label(k: &str) -> &str {
         "noteLimit" => "note length limit",
         "doneColumn" => "done column",
         "autoArchive" => "auto archive",
+        "archivedAt" => "archived",
         k => k,
     }
 }
@@ -898,6 +899,18 @@ pub fn describe(c: &Value) -> String {
         }
         "board.update" if crate::notes::covers(&c["after"]) => s(c, "summary"),
         "board.update" if crate::glossary::covers(&c["after"]) => s(c, "summary"),
+        "board.update"
+            if c["after"]
+                .as_object()
+                .is_some_and(|a| a.len() == 1 && a.contains_key("archivedAt")) =>
+        {
+            let verb = if c["after"]["archivedAt"].is_string() {
+                "Archived"
+            } else {
+                "Restored"
+            };
+            format!("{verb} board {}", q(&c["name"]))
+        }
         "board.update" => describe_update("board ", "name", &c["name"], c),
         "decision.create" => format!(
             "Recorded decision {}",

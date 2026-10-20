@@ -220,8 +220,14 @@ export function Popover({
   }, [anchor, align]);
 
   useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    // Pointerdown, in the capture phase: the board and notes canvases preventDefault it to pan, which
+    // swallows the mousedown, and handlers that stop propagation would hide it too.
+    const onDown = (e: PointerEvent) => {
+      if (!ref.current || ref.current.contains(e.target as Node)) return;
+      // A press on the trigger is left to its click, which toggles the popover shut.
+      const onAnchor =
+        e.clientX >= anchor.left && e.clientX <= anchor.right && e.clientY >= anchor.top && e.clientY <= anchor.bottom;
+      if (!onAnchor) onClose();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -229,14 +235,18 @@ export function Popover({
         onClose();
       }
     };
-    const t = setTimeout(() => window.addEventListener("mousedown", onDown), 0);
+    // Switching to another window counts as clicking away.
+    const onBlur = () => onClose();
+    const t = setTimeout(() => window.addEventListener("pointerdown", onDown, true), 0);
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", onBlur);
     return () => {
       clearTimeout(t);
-      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("pointerdown", onDown, true);
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", onBlur);
     };
-  }, [onClose]);
+  }, [onClose, anchor]);
 
   return createPortal(
     <div

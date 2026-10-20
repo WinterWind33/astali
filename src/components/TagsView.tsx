@@ -158,7 +158,12 @@ export function TagsView({ selected }: { selected?: TagRef }) {
           <div className="search-row">
             <label className="search">
               <Search size={14} />
-              <input placeholder="Find a tag or label" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input
+                data-local-search
+                placeholder="Find a tag or label"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </label>
             <TagSortMenu sort={sort} onChange={setSort} />
           </div>

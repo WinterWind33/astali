@@ -1,5 +1,6 @@
 mod gh;
 mod gitignore;
+mod gitops;
 mod gitrepo;
 mod glossary;
 mod history;
@@ -7,6 +8,7 @@ pub mod mcp;
 mod notes;
 mod plan;
 mod secrets;
+mod settings;
 mod vaultfs;
 
 use notify::{RecursiveMode, Watcher};
@@ -160,9 +162,10 @@ async fn github_token_status(token: String) -> CmdResult<serde_json::Value> {
     gh::token_status(&token)
 }
 
+/// Adds the managed block to .gitignore, or switches it to `mode` (the whole vault, or its caches only).
 #[tauri::command]
-fn git_ignore_enable(vault: String) -> CmdResult<gitignore::GitStatus> {
-    gitignore::enable(Path::new(&vault))
+fn git_ignore_enable(vault: String, mode: gitignore::Ignore) -> CmdResult<gitignore::GitStatus> {
+    gitignore::enable(Path::new(&vault), mode)
 }
 
 #[tauri::command]
@@ -173,6 +176,70 @@ fn git_ignore_disable(vault: String) -> CmdResult<gitignore::GitStatus> {
 #[tauri::command]
 fn git_ignore_sync(vault: String) -> Option<gitignore::GitStatus> {
     gitignore::sync_if_enabled(Path::new(&vault))
+}
+
+// Git actions. Async so git (and the network, for pull and push) never blocks the window; one runs at a time.
+
+#[tauri::command]
+async fn git_branches(vault: String) -> CmdResult<gitops::Branches> {
+    let _one = gitops::lock();
+    gitops::branches(Path::new(&vault))
+}
+
+#[tauri::command]
+async fn git_checkout(vault: String, branch: String, remote: bool) -> CmdResult<()> {
+    let _one = gitops::lock();
+    gitops::checkout(Path::new(&vault), &branch, remote)
+}
+
+#[tauri::command]
+async fn git_create_branch(vault: String, name: String) -> CmdResult<()> {
+    let _one = gitops::lock();
+    gitops::create_branch(Path::new(&vault), &name)
+}
+
+/// `false` when there was nothing to commit.
+#[tauri::command]
+async fn git_commit(vault: String, message: String, all: bool) -> CmdResult<bool> {
+    let _one = gitops::lock();
+    gitops::commit(Path::new(&vault), &message, all)
+}
+
+/// The files left in conflict; empty when the pull went through.
+#[tauri::command]
+async fn git_pull(vault: String) -> CmdResult<Vec<String>> {
+    let _one = gitops::lock();
+    gitops::pull(Path::new(&vault))
+}
+
+/// `false` when the repository has no remote.
+#[tauri::command]
+async fn git_push(vault: String) -> CmdResult<bool> {
+    let _one = gitops::lock();
+    gitops::push(Path::new(&vault))
+}
+
+#[tauri::command]
+async fn git_sync(vault: String, message: String) -> CmdResult<gitops::SyncResult> {
+    let _one = gitops::lock();
+    gitops::sync(Path::new(&vault), &message)
+}
+
+#[tauri::command]
+async fn git_conflicts(vault: String) -> CmdResult<Vec<String>> {
+    gitops::conflicts(Path::new(&vault))
+}
+
+#[tauri::command]
+async fn git_resolve(vault: String, keep: gitops::Keep) -> CmdResult<()> {
+    let _one = gitops::lock();
+    gitops::resolve(Path::new(&vault), keep)
+}
+
+#[tauri::command]
+async fn git_abort_merge(vault: String) -> CmdResult<()> {
+    let _one = gitops::lock();
+    gitops::abort_merge(Path::new(&vault))
 }
 
 // ---------------------------------------------------------------- history
@@ -270,6 +337,33 @@ fn watch_vault(
     Ok(())
 }
 
+/// Keeps the watcher on the settings folder alive for the app's lifetime.
+struct ConfigWatch(#[allow(dead_code)] Mutex<Option<notify::RecommendedWatcher>>);
+
+/// Emits `config-changed` when `config.json` changes on disk: the app's own saves, and an MCP
+/// server's update_settings. The window tells them apart by content.
+fn watch_config(app: &tauri::AppHandle) -> CmdResult<notify::RecommendedWatcher> {
+    let path = config_path(app)?;
+    let handle = app.clone();
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if let Ok(ev) = res {
+            if !matches!(ev.kind, notify::EventKind::Access(_))
+                && ev
+                    .paths
+                    .iter()
+                    .any(|p| p.file_name().is_some_and(|n| n == "config.json"))
+            {
+                let _ = handle.emit("config-changed", ());
+            }
+        }
+    })
+    .map_err(err)?;
+    // The folder, not the file: saves replace the file by renaming a temporary one over it.
+    let dir = path.parent().ok_or("settings folder")?;
+    watcher.watch(dir, RecursiveMode::NonRecursive).map_err(err)?;
+    Ok(watcher)
+}
+
 #[tauri::command]
 fn unwatch_vault(state: tauri::State<WatchState>, open: tauri::State<OpenVault>) {
     *state.0.lock().unwrap() = None;
@@ -285,6 +379,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(WatchState::default())
         .manage(OpenVault::default())
+        .setup(|app| {
+            let watcher = watch_config(app.handle())
+                .map_err(|e| eprintln!("can't watch the settings: {e}"))
+                .ok();
+            app.manage(ConfigWatch(Mutex::new(watcher)));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             read_text,
             write_text,
@@ -305,6 +406,16 @@ pub fn run() {
             git_ignore_enable,
             git_ignore_disable,
             git_ignore_sync,
+            git_branches,
+            git_checkout,
+            git_create_branch,
+            git_commit,
+            git_pull,
+            git_push,
+            git_sync,
+            git_conflicts,
+            git_resolve,
+            git_abort_merge,
             github_token_status,
             history_list,
             history_undo,
