@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-10-25
+
+### Added
+
+- **Finish closed issues**: from the done column's menu, tasks move there by themselves when their GitHub issue closes.
+- **Milestones**: link a task to a GitHub milestone and see its progress and due date on the card.
+- **Board templates**: save a kanban board as a template, with or without its tasks, and start new boards from it.
+- **Board groups**: gather boards under a folder, placed anywhere in the sidebar, and fold it away when you don't need it.
+- **Multi-selection**: Ctrl/⌘-click or Shift-click cards to tag, prioritize, date, move, archive or delete them together.
+- An AI agent can do the same through the MCP server: finish closed issues, link milestones, use templates and groups.
+
+### Changed
+
+- Astali reads and writes only inside the open vault, keeping the rest of your computer out of reach.
+- Saving and reading boards is faster on big vaults.
+
 ## [1.9.0] - 2026-10-19
 
 ### Added

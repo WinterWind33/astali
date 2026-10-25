@@ -93,6 +93,16 @@ const PAGES: HelpPage[] = [
         ),
       },
       {
+        term: "Groups and templates",
+        text: (
+          <>
+            <b>+ → Group of boards</b> gathers boards under a folder; drag a board in (or left, out of it), or use its{" "}
+            <b>Move to group</b>. Drag groups and boards into any order. A kanban board's <b>Save as template</b> lets
+            any project start a board from it.
+          </>
+        ),
+      },
+      {
         term: "Project views",
         text: (
           <>
@@ -150,6 +160,15 @@ const PAGES: HelpPage[] = [
       {
         term: "Moving around",
         text: <>Scroll sideways with the mouse wheel, or drag empty space.</>,
+      },
+      {
+        term: "Several at once",
+        text: (
+          <>
+            <kbd>{MOD_KEY}</kbd>-click or <kbd>Shift</kbd>-click cards to select them, then tag, date, move or archive
+            them together from the side panel.
+          </>
+        ),
       },
     ],
     tip: (
@@ -439,6 +458,15 @@ const PAGES: HelpPage[] = [
       {
         term: "Refresh",
         text: <>Issues refresh by themselves while the project is open; ↻ syncs right away.</>,
+      },
+      {
+        term: "Milestones and closed issues",
+        text: (
+          <>
+            A task can link a milestone and show its progress. The done column's <b>Finish closed issues</b> moves a
+            task there when its issue closes.
+          </>
+        ),
       },
     ],
     tip: (

@@ -2092,6 +2092,36 @@ input.board-name {
   background: var(--surface-2);
   color: var(--text-dim);
 }
+.task-milestone {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-milestone.closed {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.milestone-chip .link-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-family: var(--font, inherit);
+}
+.milestone-chip.closed .link-text {
+  text-decoration: line-through;
+}
+.milestone-progress {
+  flex: 0 0 auto !important;
+  color: var(--text-faint);
+}
 .issue-dot {
   width: 7px;
   height: 7px;
@@ -5820,4 +5850,127 @@ textarea.note-dialog-desc {
   gap: 2px;
   color: var(--text);
   font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- board templates */
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.check-row input {
+  margin-top: 2px;
+}
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.template-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.template-item:hover {
+  background: var(--surface-2);
+}
+.template-item.active {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.template-item-text {
+  flex: 1;
+  min-width: 0;
+}
+.template-item-text .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.template-item-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- board groups */
+.board-group-head .board-group-chevron {
+  transition: transform 0.15s;
+  transform: rotate(90deg);
+  color: var(--text-faint);
+}
+.board-group.collapsed .board-group-chevron {
+  transform: none;
+}
+.board-group-boards {
+  padding-left: 14px;
+}
+.board-group-new {
+  display: flex;
+  gap: 8px;
+}
+.board-group-new input {
+  flex: 1;
+}
+
+/* ---------------------------------------------------------------- multi-selection */
+.task-card.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.selection-panel {
+  position: fixed;
+  right: 16px;
+  top: 96px;
+  bottom: 16px;
+  width: 280px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.selection-panel p {
+  margin: -8px 0 0;
+}
+.selection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.selection-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.selection-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.selection-row {
+  display: flex;
+  gap: 6px;
+}
+.selection-row input {
+  flex: 1;
+}
+.selection-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }

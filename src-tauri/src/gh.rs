@@ -76,6 +76,28 @@ pub fn fetch_labels(owner: &str, repo: &str, token: Option<&str>) -> Result<Vec<
     Ok(raw.iter().map(map_label).collect())
 }
 
+/// Every milestone of the repository, open and closed, shaped like the app's (`fetchRepoMilestones`).
+pub fn fetch_milestones(owner: &str, repo: &str, token: Option<&str>) -> Result<Vec<Value>, String> {
+    let key = repo_key(owner, repo)?;
+    let raw = fetch_all(
+        &key,
+        &format!("https://api.github.com/repos/{key}/milestones?state=all"),
+        token,
+    )?;
+    Ok(raw
+        .iter()
+        .map(|m| {
+            json!({
+                "repo": key, "number": m["number"], "title": m["title"].as_str().unwrap_or(""),
+                "description": m["description"].as_str().unwrap_or(""),
+                "state": if m["state"] == "closed" { "closed" } else { "open" },
+                "dueOn": m["due_on"], "openIssues": m["open_issues"].as_u64().unwrap_or(0),
+                "closedIssues": m["closed_issues"].as_u64().unwrap_or(0), "url": m["html_url"],
+            })
+        })
+        .collect())
+}
+
 /// Every page of a list endpoint (100 per page, up to MAX_PAGES).
 fn fetch_all(key: &str, base: &str, token: Option<&str>) -> Result<Vec<Value>, String> {
     let mut all = vec![];

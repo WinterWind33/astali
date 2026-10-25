@@ -24,8 +24,19 @@ export interface Project {
   /** Most characters a glossary term's definition may hold. */
   glossaryCharLimit: number;
   boardOrder: string[];
+  /** Sidebar groups of boards, one level deep, each shown where its first board is in `boardOrder`; absent when none. */
+  boardGroups?: BoardGroup[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** A named group of boards in the sidebar; its boards show in `boardOrder`'s order. */
+export interface BoardGroup {
+  id: string;
+  name: string;
+  boardIds: string[];
+  /** Folded in the sidebar, showing just its name and count. */
+  collapsed?: boolean;
 }
 
 export interface Column {
@@ -83,6 +94,9 @@ export interface IssueRef {
   number: number;
 }
 
+/** A GitHub milestone a task is linked to: its repository and number. */
+export type MilestoneRef = IssueRef;
+
 export interface ChecklistItem {
   id: string;
   text: string;
@@ -105,6 +119,8 @@ export interface Task {
   labels: string[];
   dueDate: string | null;
   issue: IssueRef | null;
+  /** The GitHub milestone the task belongs to; absent (or null) when none. */
+  milestone?: MilestoneRef | null;
   checklist: ChecklistItem[];
   /** Links to other tasks of the project, stored on the task they start from. Absent when there are none. */
   links?: TaskLink[];
@@ -211,6 +227,8 @@ export interface Board {
   doneColumn?: string;
   /** Whether a task moved into the done column is archived right away. */
   autoArchive?: boolean;
+  /** Whether a task whose linked GitHub issue closes moves to the done column by itself. */
+  autoDone?: boolean;
   /**
    * Finished tasks put away from the board, newest first: off the columns and out of `tasks`, but
    * kept with the column they left, to search and restore (D-8). Absent when there are none.
@@ -294,11 +312,25 @@ export interface GhIssue {
   closedAt: string | null;
 }
 
+export interface GhMilestone {
+  repo: string;
+  number: number;
+  title: string;
+  description: string;
+  state: "open" | "closed";
+  dueOn: string | null;
+  openIssues: number;
+  closedIssues: number;
+  url: string;
+}
+
 export interface RepoCache {
   fetchedAt: string;
   issues: GhIssue[];
   /** Every label of the repository; missing in caches written before label columns existed. */
   labels?: GhLabel[];
+  /** Every milestone of the repository, open and closed; missing in caches written before 1.10.0. */
+  milestones?: GhMilestone[];
   error?: string;
 }
 

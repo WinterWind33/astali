@@ -14,6 +14,7 @@ import {
   Search,
   Tag,
   Trash2,
+  Milestone,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -33,7 +34,8 @@ import {
 } from "../../lib/store";
 import { isViewColumn } from "../../lib/labelColumns";
 import { defaultTagColor, tagKey } from "../../lib/tags";
-import type { GhIssue, Priority, Task } from "../../lib/types";
+import type { GhIssue, GhMilestone, Priority, Task } from "../../lib/types";
+import { findMilestone, milestoneProgress, milestoneSummary } from "../../lib/milestones";
 import { cx, MOD_KEY, relativeTime, uid } from "../../lib/util";
 import { ColorPicker } from "../ColorPicker";
 import { TagInput } from "../TagInput";
@@ -53,7 +55,10 @@ function AutoTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) 
 }
 
 /** What the dialog edits: the task's own fields, and the column it sits in. */
-type Draft = Pick<Task, "title" | "description" | "priority" | "labels" | "dueDate" | "issue" | "checklist"> & {
+type Draft = Pick<
+  Task,
+  "title" | "description" | "priority" | "labels" | "dueDate" | "issue" | "milestone" | "checklist"
+> & {
   column: string;
 };
 
@@ -79,6 +84,7 @@ export function TaskDialog({
   const [descMode, setDescMode] = useState<"preview" | "edit">(task?.description ? "preview" : "edit");
   const [checkInput, setCheckInput] = useState("");
   const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null);
+  const [milestoneAnchor, setMilestoneAnchor] = useState<DOMRect | null>(null);
   const [tagMenu, setTagMenu] = useState<{ tag: string; anchor: DOMRect } | null>(null);
   const [moveAnchor, setMoveAnchor] = useState<DOMRect | null>(null);
   // Only the fields edited here; the others show the task as it is on disk (e.g. edited by Claude meanwhile).
@@ -92,6 +98,8 @@ export function TaskDialog({
     () => (issue ? issues.repos[issue.repo]?.issues.find((i) => i.number === issue.number) : undefined),
     [issue, issues],
   );
+
+  const milestone = findMilestone(issues, draft?.milestone);
 
   if (!board || !task || !draft) return null;
   const column = board.columns.find((c) => c.id === draft.column);
@@ -386,6 +394,40 @@ export function TaskDialog({
               )}
             </div>
 
+            <div className="prop">
+              <div className="prop-label">
+                <Milestone size={14} /> Milestone
+              </div>
+              {draft.milestone ? (
+                <div
+                  className={cx("linked-issue-chip", "milestone-chip", milestone?.state)}
+                  title={milestone ? milestoneSummary(milestone) : "Not in the local cache — sync issues"}
+                >
+                  <Milestone size={14} />
+                  {milestone ? (
+                    <button className="link-text" onClick={() => openUrl(milestone.url)}>
+                      {milestone.title}
+                    </button>
+                  ) : (
+                    <span>
+                      {draft.milestone.repo.split("/")[1]} milestone {draft.milestone.number}
+                    </span>
+                  )}
+                  {milestone && <span className="milestone-progress">{milestoneProgress(milestone)}%</span>}
+                  <button className="icon-btn tiny" title="Unlink" onClick={() => update({ milestone: null })}>
+                    <Link2Off size={13} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="btn small full"
+                  onClick={(e) => setMilestoneAnchor(e.currentTarget.getBoundingClientRect())}
+                >
+                  <Link2 size={14} /> Link milestone
+                </button>
+              )}
+            </div>
+
             <div className="side-spacer" />
             <button
               className="btn ghost full"
@@ -469,6 +511,16 @@ export function TaskDialog({
           <IssuePicker onPick={linkIssue} />
         </Popover>
       )}
+      {milestoneAnchor && (
+        <Popover anchor={milestoneAnchor} align="right" onClose={() => setMilestoneAnchor(null)}>
+          <MilestonePicker
+            onPick={(m) => {
+              update({ milestone: { repo: m.repo, number: m.number } });
+              setMilestoneAnchor(null);
+            }}
+          />
+        </Popover>
+      )}
     </Modal>
   );
 }
@@ -533,6 +585,47 @@ export function IssuePicker({ onPick }: { onPick: (i: GhIssue) => void }) {
             <IssueStateIcon issue={i} size={14} />
             <span className="issue-picker-title">{i.title}</span>
             <span className="faint small">#{i.number}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The cached milestones of the project's repositories, open ones first. */
+function MilestonePicker({ onPick }: { onPick: (m: GhMilestone) => void }) {
+  const issues = useStore((s) => s.issues);
+  const [q, setQ] = useState("");
+  const all = useMemo(() => Object.values(issues.repos).flatMap((r) => r.milestones ?? []), [issues]);
+  const multiRepo = new Set(all.map((m) => m.repo)).size > 1;
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return all
+      .filter((m) => !s || m.title.toLowerCase().includes(s))
+      .sort((a, b) => (a.state === b.state ? a.title.localeCompare(b.title) : a.state === "open" ? -1 : 1));
+  }, [all, q]);
+
+  return (
+    <div className="issue-picker">
+      <label className="search">
+        <Search size={14} />
+        <input autoFocus placeholder="Search milestones" value={q} onChange={(e) => setQ(e.target.value)} />
+      </label>
+      <div className="issue-picker-list">
+        {all.length === 0 && <div className="faint small pad">No cached milestones. Sync from the sidebar first.</div>}
+        {shown.map((m) => (
+          <button
+            key={`${m.repo}#${m.number}`}
+            className={cx("issue-picker-item", m.state === "closed" && "faint")}
+            onClick={() => onPick(m)}
+            title={milestoneSummary(m)}
+          >
+            <Milestone size={14} />
+            <span className="issue-picker-title">{m.title}</span>
+            <span className="faint small">
+              {multiRepo ? `${m.repo.split("/")[1]} · ` : ""}
+              {m.state === "closed" ? "closed" : `${milestoneProgress(m)}%`}
+            </span>
           </button>
         ))}
       </div>

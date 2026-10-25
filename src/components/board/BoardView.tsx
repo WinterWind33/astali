@@ -42,6 +42,7 @@ import { IssueDialog } from "./IssueDialog";
 import { LabelColumnPicker } from "./LabelColumnPicker";
 import { TagColumnPicker } from "./TagColumnPicker";
 import { TaskCard } from "./TaskCard";
+import { SelectionPanel } from "./SelectionPanel";
 import { TaskDialog } from "./TaskDialog";
 
 function columnOfTask(board: Board, taskId: string) {
@@ -531,6 +532,7 @@ export function BoardView({ boardId, archivedTask }: { boardId: string; archived
         </DragOverlay>
       </DndContext>
 
+      <SelectionPanel boardId={boardId} />
       {openTask && board.tasks[openTask] && (
         <TaskDialog
           key={openTask}

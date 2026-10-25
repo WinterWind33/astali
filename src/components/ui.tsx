@@ -337,7 +337,8 @@ export function Markdown({ children, className }: { children: string; className?
               href={href}
               onClick={(e) => {
                 e.preventDefault();
-                if (href) openUrl(href);
+                // Only web and mail links leave the app; nothing else in a note opens a file or a program.
+                if (href && /^(https?|mailto):/i.test(href)) openUrl(href);
               }}
             >
               {children}

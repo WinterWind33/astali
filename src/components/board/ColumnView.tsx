@@ -11,9 +11,11 @@ import {
   ChevronsLeftRight,
   ChevronsRightLeft,
   CircleCheck,
+  CircleOff,
   Eye,
   EyeOff,
   Gauge,
+  GitPullRequestClosed,
   MoreHorizontal,
   Palette,
   Pencil,
@@ -29,6 +31,7 @@ import {
   archiveTasks,
   deleteColumn,
   setAutoArchive,
+  setAutoDone,
   setColumnCollapsed,
   setDoneColumn,
   sortColumn,
@@ -165,6 +168,22 @@ export function ColumnView({
                   if (on)
                     toast(
                       `Auto archive is on${n ? `: archived ${n} task${n === 1 ? "" : "s"} from “${column.name}”` : ""}`,
+                      "success",
+                    );
+                },
+              },
+              {
+                label: board.autoDone ? "Stop finishing closed issues" : "Finish closed issues",
+                icon: board.autoDone ? <CircleOff size={14} /> : <GitPullRequestClosed size={14} />,
+                title: board.autoDone
+                  ? "Tasks stay where they are when their GitHub issue closes"
+                  : "Move here every task whose linked GitHub issue is closed, now and after each issue sync",
+                onClick: () => {
+                  const on = !board.autoDone;
+                  const n = setAutoDone(board.id, on);
+                  if (on)
+                    toast(
+                      `Closed issues finish their tasks${n ? `: moved ${n} task${n === 1 ? "" : "s"} to “${column.name}”` : ""}`,
                       "success",
                     );
                 },
@@ -325,6 +344,14 @@ export function ColumnView({
             title="Done column: the progress bar counts its tasks, and tasks blocked by one of them are unblocked"
           >
             <CircleCheck size={13} />
+          </span>
+        )}
+        {isDone && board.autoDone && (
+          <span
+            className="column-done-mark"
+            title="Finish closed issues: a task moves here when its linked GitHub issue closes"
+          >
+            <GitPullRequestClosed size={13} />
           </span>
         )}
         {isDone && board.autoArchive && (

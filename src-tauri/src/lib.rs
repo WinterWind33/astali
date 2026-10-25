@@ -3,6 +3,7 @@ mod gitignore;
 mod gitops;
 mod gitrepo;
 mod glossary;
+mod guard;
 mod history;
 pub mod mcp;
 mod notes;
@@ -33,25 +34,101 @@ struct DirEntry {
 }
 
 /// Reads a UTF-8 text file. Returns `None` when the file does not exist.
-#[tauri::command]
-fn read_text(path: String) -> CmdResult<Option<String>> {
-    match fs::read_to_string(&path) {
+fn read_file(path: &Path) -> CmdResult<Option<String>> {
+    match fs::read_to_string(path) {
         Ok(s) => Ok(Some(s)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(err(e)),
     }
 }
 
-/// Writes a file; project and board files of the open vault are recorded in its history.
+/// The open vault; the file commands refuse to work without one.
+fn open_vault_dir(vault: &tauri::State<OpenVault>) -> CmdResult<PathBuf> {
+    vault
+        .0
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "No vault is open".to_string())
+}
+
+/// `vault`, when it is the open vault: the git and history commands act only on that one.
+fn the_vault(app: &tauri::AppHandle, vault: &str) -> CmdResult<PathBuf> {
+    let open = app.state::<OpenVault>().0.lock().unwrap().clone();
+    match open {
+        Some(v) if guard::same_path(&v, Path::new(vault)) => Ok(v),
+        _ => Err("That vault isn't open".into()),
+    }
+}
+
+/// Reads a file of the open vault.
+#[tauri::command]
+fn read_text(vault: tauri::State<OpenVault>, path: String) -> CmdResult<Option<String>> {
+    read_file(&guard::inside(&open_vault_dir(&vault)?, Path::new(&path))?)
+}
+
+/// Writes a file of the open vault; project and board files are recorded in its history.
 #[tauri::command]
 fn write_text(vault: tauri::State<OpenVault>, path: String, contents: String) -> CmdResult<()> {
-    let vault = vault.0.lock().unwrap().clone();
-    history::write_text(vault.as_deref(), Path::new(&path), &contents, &history::Actor::app())
+    let vault = open_vault_dir(&vault)?;
+    let path = guard::writable(&vault, Path::new(&path))?;
+    history::write_text(Some(&vault), &path, &contents, &history::Actor::app())
+}
+
+/// Shows an open-file dialog and reads the file picked: the one way the window reads outside the vault.
+#[tauri::command]
+async fn pick_text_file(app: tauri::AppHandle, title: String, extensions: Vec<String>) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let exts: Vec<&str> = extensions.iter().map(String::as_str).collect();
+    let picked = app
+        .dialog()
+        .file()
+        .set_title(title)
+        .add_filter("Text", &exts)
+        .blocking_pick_file();
+    match picked.map(|p| p.into_path()) {
+        Some(Ok(path)) => read_file(&path),
+        Some(Err(e)) => Err(err(e)),
+        None => Ok(None),
+    }
+}
+
+/// Folders the user picked in [`pick_vault_folder`] this session, which may become vaults.
+#[derive(Default)]
+struct PickedFolders(Mutex<Vec<PathBuf>>);
+
+/// Shows a folder dialog; the folder picked may then be opened as a vault even if it isn't one yet.
+#[tauri::command]
+async fn pick_vault_folder(app: tauri::AppHandle, title: String) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(picked) = app.dialog().file().set_title(title).blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(err)?;
+    app.state::<PickedFolders>().0.lock().unwrap().push(path.clone());
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Makes `path` the open vault, the only folder the file commands then reach: a folder that is
+/// already a vault, or one just picked in [`pick_vault_folder`].
+#[tauri::command]
+fn open_vault(open: tauri::State<OpenVault>, picked: tauri::State<PickedFolders>, path: String) -> CmdResult<()> {
+    let p = PathBuf::from(&path);
+    let chosen = picked.0.lock().unwrap().iter().any(|f| guard::same_path(f, &p));
+    if !chosen && !vaultfs::is_vault(&p) {
+        return Err(format!("{path} is not a vault"));
+    }
+    *open.0.lock().unwrap() = Some(p);
+    Ok(())
 }
 
 #[tauri::command]
-fn list_dir(path: String) -> CmdResult<Vec<DirEntry>> {
+fn list_dir(vault: tauri::State<OpenVault>, path: String) -> CmdResult<Vec<DirEntry>> {
+    let vault = open_vault_dir(&vault)?;
     let p = Path::new(&path);
+    if !guard::same_path(&vault, p) {
+        guard::inside(&vault, p)?;
+    }
     if !p.exists() {
         return Ok(vec![]);
     }
@@ -66,11 +143,12 @@ fn list_dir(path: String) -> CmdResult<Vec<DirEntry>> {
     Ok(out)
 }
 
-/// Removes a file or folder; deleted boards and projects of the open vault are recorded in its history.
+/// Removes a file or folder of the open vault; deleted boards and projects are recorded in its history.
 #[tauri::command]
 fn remove_path(vault: tauri::State<OpenVault>, path: String) -> CmdResult<()> {
-    let vault = vault.0.lock().unwrap().clone();
-    history::remove(vault.as_deref(), Path::new(&path), &history::Actor::app())
+    let vault = open_vault_dir(&vault)?;
+    let path = guard::inside(&vault, Path::new(&path))?;
+    history::remove(Some(&vault), &path, &history::Actor::app())
 }
 
 #[tauri::command]
@@ -92,7 +170,7 @@ fn config_path(app: &tauri::AppHandle) -> CmdResult<PathBuf> {
 /// ends up in a synced folder. The GitHub token is in the OS credential store (see secrets.rs).
 #[tauri::command]
 fn load_app_config(app: tauri::AppHandle) -> CmdResult<Option<String>> {
-    read_text(config_path(&app)?.to_string_lossy().into_owned())
+    read_file(&config_path(&app)?)
 }
 
 #[tauri::command]
@@ -145,15 +223,15 @@ fn updates_supported() -> bool {
 
 /// `None` when the vault is not inside a git repository.
 #[tauri::command]
-fn git_status(vault: String) -> Option<gitignore::GitStatus> {
-    gitignore::status(Path::new(&vault))
+fn git_status(app: tauri::AppHandle, vault: String) -> Option<gitignore::GitStatus> {
+    gitignore::status(&the_vault(&app, &vault).ok()?)
 }
 
 /// Branch and working-tree summary; `None` outside a repository or when git is not installed.
 /// Async so the `git` process runs off the main thread.
 #[tauri::command]
-async fn git_repo_info(vault: String) -> Option<gitrepo::RepoInfo> {
-    gitrepo::info(Path::new(&vault))
+async fn git_repo_info(app: tauri::AppHandle, vault: String) -> Option<gitrepo::RepoInfo> {
+    gitrepo::info(&the_vault(&app, &vault).ok()?)
 }
 
 /// Whether GitHub accepts the token and when it expires. Async so the request runs off the main thread.
@@ -164,82 +242,82 @@ async fn github_token_status(token: String) -> CmdResult<serde_json::Value> {
 
 /// Adds the managed block to .gitignore, or switches it to `mode` (the whole vault, or its caches only).
 #[tauri::command]
-fn git_ignore_enable(vault: String, mode: gitignore::Ignore) -> CmdResult<gitignore::GitStatus> {
-    gitignore::enable(Path::new(&vault), mode)
+fn git_ignore_enable(app: tauri::AppHandle, vault: String, mode: gitignore::Ignore) -> CmdResult<gitignore::GitStatus> {
+    gitignore::enable(&the_vault(&app, &vault)?, mode)
 }
 
 #[tauri::command]
-fn git_ignore_disable(vault: String) -> CmdResult<gitignore::GitStatus> {
-    gitignore::disable(Path::new(&vault))
+fn git_ignore_disable(app: tauri::AppHandle, vault: String) -> CmdResult<gitignore::GitStatus> {
+    gitignore::disable(&the_vault(&app, &vault)?)
 }
 
 #[tauri::command]
-fn git_ignore_sync(vault: String) -> Option<gitignore::GitStatus> {
-    gitignore::sync_if_enabled(Path::new(&vault))
+fn git_ignore_sync(app: tauri::AppHandle, vault: String) -> Option<gitignore::GitStatus> {
+    gitignore::sync_if_enabled(&the_vault(&app, &vault).ok()?)
 }
 
 // Git actions. Async so git (and the network, for pull and push) never blocks the window; one runs at a time.
 
 #[tauri::command]
-async fn git_branches(vault: String) -> CmdResult<gitops::Branches> {
+async fn git_branches(app: tauri::AppHandle, vault: String) -> CmdResult<gitops::Branches> {
     let _one = gitops::lock();
-    gitops::branches(Path::new(&vault))
+    gitops::branches(&the_vault(&app, &vault)?)
 }
 
 #[tauri::command]
-async fn git_checkout(vault: String, branch: String, remote: bool) -> CmdResult<()> {
+async fn git_checkout(app: tauri::AppHandle, vault: String, branch: String, remote: bool) -> CmdResult<()> {
     let _one = gitops::lock();
-    gitops::checkout(Path::new(&vault), &branch, remote)
+    gitops::checkout(&the_vault(&app, &vault)?, &branch, remote)
 }
 
 #[tauri::command]
-async fn git_create_branch(vault: String, name: String) -> CmdResult<()> {
+async fn git_create_branch(app: tauri::AppHandle, vault: String, name: String) -> CmdResult<()> {
     let _one = gitops::lock();
-    gitops::create_branch(Path::new(&vault), &name)
+    gitops::create_branch(&the_vault(&app, &vault)?, &name)
 }
 
 /// `false` when there was nothing to commit.
 #[tauri::command]
-async fn git_commit(vault: String, message: String, all: bool) -> CmdResult<bool> {
+async fn git_commit(app: tauri::AppHandle, vault: String, message: String, all: bool) -> CmdResult<bool> {
     let _one = gitops::lock();
-    gitops::commit(Path::new(&vault), &message, all)
+    gitops::commit(&the_vault(&app, &vault)?, &message, all)
 }
 
 /// The files left in conflict; empty when the pull went through.
 #[tauri::command]
-async fn git_pull(vault: String) -> CmdResult<Vec<String>> {
+async fn git_pull(app: tauri::AppHandle, vault: String) -> CmdResult<Vec<String>> {
     let _one = gitops::lock();
-    gitops::pull(Path::new(&vault))
+    gitops::pull(&the_vault(&app, &vault)?)
 }
 
 /// `false` when the repository has no remote.
 #[tauri::command]
-async fn git_push(vault: String) -> CmdResult<bool> {
+async fn git_push(app: tauri::AppHandle, vault: String) -> CmdResult<bool> {
     let _one = gitops::lock();
-    gitops::push(Path::new(&vault))
+    gitops::push(&the_vault(&app, &vault)?)
 }
 
 #[tauri::command]
-async fn git_sync(vault: String, message: String) -> CmdResult<gitops::SyncResult> {
+async fn git_sync(app: tauri::AppHandle, vault: String, message: String) -> CmdResult<gitops::SyncResult> {
     let _one = gitops::lock();
-    gitops::sync(Path::new(&vault), &message)
+    gitops::sync(&the_vault(&app, &vault)?, &message)
 }
 
 #[tauri::command]
-async fn git_conflicts(vault: String) -> CmdResult<Vec<String>> {
-    gitops::conflicts(Path::new(&vault))
+async fn git_conflicts(app: tauri::AppHandle, vault: String) -> CmdResult<Vec<String>> {
+    gitops::conflicts(&the_vault(&app, &vault)?)
 }
 
 #[tauri::command]
-async fn git_resolve(vault: String, keep: gitops::Keep) -> CmdResult<()> {
+async fn git_resolve(app: tauri::AppHandle, vault: String, keep: gitops::Keep) -> CmdResult<()> {
     let _one = gitops::lock();
-    gitops::resolve(Path::new(&vault), keep)
+    gitops::resolve(&the_vault(&app, &vault)?, keep)
 }
 
 #[tauri::command]
-async fn git_abort_merge(vault: String) -> CmdResult<()> {
+async fn git_abort_merge(app: tauri::AppHandle, vault: String) -> CmdResult<()> {
     let _one = gitops::lock();
-    gitops::abort_merge(Path::new(&vault))
+    gitops::abort_merge(&the_vault(&app, &vault)?)
 }
 
 // ---------------------------------------------------------------- history
@@ -247,6 +325,7 @@ async fn git_abort_merge(vault: String) -> CmdResult<()> {
 /// Recent changes, newest first; see `history::list`.
 #[tauri::command]
 async fn history_list(
+    app: tauri::AppHandle,
     vault: String,
     project: Option<String>,
     board: Option<String>,
@@ -258,12 +337,20 @@ async fn history_list(
         by: None,
         limit: limit.unwrap_or(200),
     };
-    history::list(Path::new(&vault), &filter)
+    match the_vault(&app, &vault) {
+        Ok(vault) => history::list(&vault, &filter),
+        Err(_) => vec![],
+    }
 }
 
 #[tauri::command]
-async fn history_undo(vault: String, id: String, skip_conflicts: bool) -> CmdResult<serde_json::Value> {
-    history::undo(Path::new(&vault), &id, skip_conflicts, &history::Actor::app())
+async fn history_undo(
+    app: tauri::AppHandle,
+    vault: String,
+    id: String,
+    skip_conflicts: bool,
+) -> CmdResult<serde_json::Value> {
+    history::undo(&the_vault(&app, &vault)?, &id, skip_conflicts, &history::Actor::app())
 }
 
 // ---------------------------------------------------------------- plans
@@ -298,7 +385,10 @@ fn watch_vault(
     open: tauri::State<OpenVault>,
     path: String,
 ) -> CmdResult<()> {
-    *open.0.lock().unwrap() = Some(PathBuf::from(&path));
+    match open.0.lock().unwrap().as_deref() {
+        Some(v) if guard::same_path(v, Path::new(&path)) => {}
+        _ => return Err("Open the vault before watching it".into()),
+    }
     let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
     let mut watcher = notify::recommended_watcher(tx).map_err(err)?;
     watcher.watch(Path::new(&path), RecursiveMode::Recursive).map_err(err)?;
@@ -379,6 +469,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(WatchState::default())
         .manage(OpenVault::default())
+        .manage(PickedFolders::default())
         .setup(|app| {
             let watcher = watch_config(app.handle())
                 .map_err(|e| eprintln!("can't watch the settings: {e}"))
@@ -389,6 +480,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_text,
             write_text,
+            pick_text_file,
+            pick_vault_folder,
+            open_vault,
             list_dir,
             remove_path,
             path_exists,

@@ -15,7 +15,6 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Check,
   ChevronRight,
@@ -37,7 +36,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { readText } from "../lib/fs";
+import { invoke } from "@tauri-apps/api/core";
 import {
   currentStepId,
   findItem,
@@ -1034,13 +1033,10 @@ export function PlanImportDialog({ onClose }: { onClose: () => void }) {
   }, [markdown]);
 
   const openFile = async () => {
-    const path = await openDialog({
-      multiple: false,
+    const text = await invoke<string | null>("pick_text_file", {
       title: "Open a plan",
-      filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }],
+      extensions: ["md", "markdown", "txt"],
     });
-    if (typeof path !== "string") return;
-    const text = await readText(path);
     if (text != null) setMarkdown(text);
   };
 

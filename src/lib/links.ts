@@ -76,6 +76,20 @@ export function isFinished(board: Board, taskId: string): boolean {
   return !!doneColumn(board)?.taskIds.includes(taskId);
 }
 
+// Which board holds each task, per state of the boards: cards look their board up on every store change.
+const homes = new WeakMap<Boards, Map<string, string>>();
+
+/** The id of the board holding the task, if it's loaded. */
+export function boardOfTask(boards: Boards, taskId: string): string | undefined {
+  let home = homes.get(boards);
+  if (!home) {
+    home = new Map();
+    for (const { board } of Object.values(boards)) for (const id in board.tasks) home.set(id, board.id);
+    homes.set(boards, home);
+  }
+  return home.get(taskId);
+}
+
 /** Tasks blocking this one that aren't finished yet. */
 export function openBlockers(boards: Boards, ref: TaskRef): LinkedTask[] {
   return taskLinks(boards, ref).blockedBy.filter((l) => !isFinished(l.board, l.task.id));

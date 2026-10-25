@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { BranchPr, GhIssue, GhLabel, RepoRef } from "./types";
+import type { BranchPr, GhIssue, GhLabel, GhMilestone, RepoRef } from "./types";
 import { repoKey } from "./util";
 
 const API = "https://api.github.com";
@@ -99,6 +99,22 @@ export async function fetchRepoLabels(ref: RepoRef, token: string): Promise<GhLa
   return (await fetchAllPages(repoKey(ref), `${repoUrl(ref)}/labels`, token)).map(mapLabel);
 }
 
+/** Read-only: every milestone of a repository, open and closed. */
+export async function fetchRepoMilestones(ref: RepoRef, token: string): Promise<GhMilestone[]> {
+  const key = repoKey(ref);
+  return (await fetchAllPages(key, `${repoUrl(ref)}/milestones?state=all`, token)).map((m) => ({
+    repo: key,
+    number: m.number,
+    title: m.title ?? "",
+    description: m.description ?? "",
+    state: m.state === "closed" ? "closed" : "open",
+    dueOn: m.due_on ?? null,
+    openIssues: m.open_issues ?? 0,
+    closedIssues: m.closed_issues ?? 0,
+    url: m.html_url,
+  }));
+}
+
 /** ETags of the probe requests, by URL. */
 const etags = new Map<string, string>();
 
@@ -110,7 +126,11 @@ const etags = new Map<string, string>();
  * "error" when GitHub couldn't be asked (offline, rate-limited, no access).
  */
 export async function repoChanged(ref: RepoRef, token: string): Promise<"changed" | "same" | "error"> {
-  const urls = [`${repoUrl(ref)}/issues?state=all&sort=updated&per_page=1`, `${repoUrl(ref)}/labels?per_page=100`];
+  const urls = [
+    `${repoUrl(ref)}/issues?state=all&sort=updated&per_page=1`,
+    `${repoUrl(ref)}/labels?per_page=100`,
+    `${repoUrl(ref)}/milestones?state=all&per_page=100`,
+  ];
   const results = await Promise.all(
     urls.map(async (url) => {
       const headers = apiHeaders(token);

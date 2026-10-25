@@ -271,18 +271,26 @@ fn entry(actor: &Actor, project: &Value, board: Option<&Value>, changes: Vec<Val
 
 /// Byte offset and parsed value of the last line, read from the file's tail.
 fn last_line(f: &mut fs::File, len: u64) -> Option<(u64, Value)> {
-    let start = len.saturating_sub(1 << 20);
-    f.seek(SeekFrom::Start(start)).ok()?;
-    let mut buf = Vec::new();
-    f.read_to_end(&mut buf).ok()?;
-    let body = buf.strip_suffix(b"\n")?;
-    let line_start = match body.iter().rposition(|&c| c == b'\n') {
-        Some(i) => i + 1,
-        None if start == 0 => 0,
-        None => return None, // a single line longer than the tail we read
-    };
-    let v = serde_json::from_slice(&body[line_start..]).ok()?;
-    Some((start + line_start as u64, v))
+    // Every write lands here, so read a small tail first and widen it only for a long last line.
+    let mut window: u64 = 64 << 10;
+    loop {
+        let start = len.saturating_sub(window);
+        f.seek(SeekFrom::Start(start)).ok()?;
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).ok()?;
+        let body = buf.strip_suffix(b"\n")?;
+        let line_start = match body.iter().rposition(|&c| c == b'\n') {
+            Some(i) => i + 1,
+            None if start == 0 => 0,
+            None if window < 1 << 20 => {
+                window *= 4;
+                continue;
+            }
+            None => return None, // a single line longer than the tail we read
+        };
+        let v = serde_json::from_slice(&body[line_start..]).ok()?;
+        return Some((start + line_start as u64, v));
+    }
 }
 
 fn append(vault: &Path, mut e: Value) -> R<()> {

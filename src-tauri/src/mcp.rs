@@ -14,7 +14,7 @@ use serde_json::{json, Map, Value};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
 const COLORS: &[&str] = &[
@@ -277,6 +277,7 @@ fn tools() -> Vec<Value> {
     let position =
         json!({ "type": "integer", "minimum": 0, "description": "0-based index; omit to append at the end" });
     let issue = s("GitHub issue as \"owner/repo#123\" or an issue URL; empty string to unlink");
+    let milestone = s("GitHub milestone as \"owner/repo#3\", a milestone URL, or the title of a milestone list_milestones shows; empty string to unlink");
     let due = s("Due date YYYY-MM-DD, or empty string to clear");
     let decision = s("Decision as \"D-12\", its number, its id, or its exact title");
     let step = s("Step id, its number (\"3\"), or its exact title");
@@ -345,10 +346,14 @@ fn tools() -> Vec<Value> {
             json!({ "project": project, "name": s("Board name"), "description": s("Optional description"),
                     "kind": { "type": "string", "enum": ["kanban", "notes", "glossary"], "description": "Default kanban" },
                     "columns": { "type": "array", "items": { "type": "string" }, "description": "Kanban only: optional custom column names" },
+                    "template": s("Kanban only: a board template's name or id (list_board_templates), whose columns, settings and tasks the board starts with"),
                     "note_limit": note_limit.clone() }),
             &["project", "name"], "write"),
-        tool("update_board", "Rename a board, change its description, or a notes board's note length limit.",
-            json!({ "project": project, "board": board, "name": s("New name"), "description": s("New description"), "note_limit": note_limit }),
+        tool("list_board_templates", "List the vault's kanban board templates (saved from a board's menu in the app), with their columns and task counts. create_board's `template` starts a board from one.",
+            json!({}), &[], "read"),
+        tool("update_board", "Rename a board, change its description, a notes board's note length limit, or the sidebar group it shows in.",
+            json!({ "project": project, "board": board, "name": s("New name"), "description": s("New description"), "note_limit": note_limit,
+                    "group": s("Sidebar group to show the board in, by name (created if new); empty string takes it out of its group. list_boards shows each board's group") }),
             &["project", "board"], "write"),
         tool("delete_board", "Delete a board and its tasks (can be restored with undo).", json!({ "project": project, "board": board }), &["project", "board"], "delete"),
         tool("archive_board", "Put a whole board away in the project's boards archive, with its tasks and its own task archive. Until restore_board brings it back, no tool reads or changes it, tasks can't be moved or linked to it, and list_boards names it under `archivedBoards`. The glossary can't be archived.",
@@ -374,6 +379,7 @@ fn tools() -> Vec<Value> {
                     "wip_limit": { "type": "integer", "minimum": 0 },
                     "done": { "type": "boolean", "description": "true makes this the board's done column (get_board marks it `done`): the progress bar counts its tasks, and tasks it holds no longer block others. Defaults to the last column that holds tasks." },
                     "auto_archive": { "type": "boolean", "description": "Done column only: true archives the tasks it holds and every task moved into it from then on (get_board marks it `autoArchive`); while it is on, restore_task and undo refuse to put tasks back there" },
+                    "auto_done": { "type": "boolean", "description": "Done column only: true moves here every task whose linked GitHub issue is closed, now and whenever an issue sync finds one newly closed (get_board marks it `autoDone`)" },
                     "tags": { "type": "array", "items": { "type": "string" }, "description": "Tag columns only: the tags it shows tasks for" },
                     "match": { "type": "string", "enum": ["any", "all"], "description": "Tag columns only" } }),
             &["project", "board", "column"], "write"),
@@ -387,13 +393,13 @@ fn tools() -> Vec<Value> {
         tool("create_task", "Create a task (card). Defaults to the first column. Can link a GitHub issue.",
             json!({ "project": project, "board": board, "column": column, "title": s("Title"),
                     "description": s("Markdown description"), "priority": priority, "labels": labels,
-                    "due_date": due, "issue": issue,
+                    "due_date": due, "issue": issue, "milestone": milestone,
                     "checklist": { "type": "array", "items": { "type": "string" }, "description": "Checklist item texts" },
                     "position": position }),
             &["project", "board", "title"], "write"),
         tool("update_task", "Update fields of a task. Only provided fields change. checklist replaces the whole list.",
             json!({ "project": project, "board": board, "task": task, "title": s("Title"), "description": s("Markdown description"),
-                    "priority": priority, "labels": labels, "due_date": due, "issue": issue,
+                    "priority": priority, "labels": labels, "due_date": due, "issue": issue, "milestone": milestone,
                     "checklist": { "type": "array", "items": { "type": "object",
                         "properties": { "text": { "type": "string" }, "done": { "type": "boolean" } }, "required": ["text"] } } }),
             &["project", "board", "task"], "write"),
@@ -552,6 +558,9 @@ fn tools() -> Vec<Value> {
 
         tool("sync_issues", "Fetch issues from the project's GitHub repos into the local cache (read-only on GitHub).",
             json!({ "project": project }), &["project"], "write"),
+        tool("list_milestones", "List the cached GitHub milestones of a project's repos (sync_issues refreshes them), with their progress and the tasks linked to each.",
+            json!({ "project": project, "state": { "type": "string", "enum": ["open", "closed", "all"] } }),
+            &["project"], "read"),
         tool("list_issues", "List cached GitHub issues of a project and where each is linked on boards.",
             json!({ "project": project, "state": { "type": "string", "enum": ["open", "closed", "all"] },
                     "query": s("Text filter"), "repo": s("owner/repo filter"),
@@ -676,6 +685,52 @@ fn parse_issue(s: &str) -> R<Value> {
     Err(format!("Cannot parse issue '{s}'. Use owner/repo#123 or an issue URL."))
 }
 
+/// The `milestone` argument: `owner/repo#3`, a milestone URL, or the title of a cached milestone of
+/// the project; "" unlinks.
+fn arg_milestone(a: &Value, p: &Proj) -> R<Option<Value>> {
+    let Some(q) = arg_str(a, "milestone").map(str::trim) else {
+        return Ok(None);
+    };
+    if q.is_empty() {
+        return Ok(Some(Value::Null));
+    }
+    if let Some(rest) = q.split("github.com/").nth(1) {
+        let parts: Vec<&str> = rest.split('/').collect();
+        if parts.len() >= 4 && parts[2] == "milestone" {
+            if let Ok(n) = parts[3].parse::<u64>() {
+                return Ok(Some(
+                    json!({ "repo": format!("{}/{}", parts[0], parts[1]), "number": n }),
+                ));
+            }
+        }
+    }
+    if let Ok(v) = parse_issue(q) {
+        return Ok(Some(v));
+    }
+    let cache = vaultfs::read_json(&issue_cache_path(p)).unwrap_or(json!({ "repos": {} }));
+    let found: Vec<Value> = cached_milestones(&cache)
+        .into_iter()
+        .filter(|m| eq_ci(&s(m, "title"), q))
+        .map(|m| json!({ "repo": m["repo"], "number": m["number"] }))
+        .collect();
+    match found.len() {
+        1 => Ok(found.into_iter().next()),
+        0 => Err(format!(
+            "No cached milestone '{q}'. Use owner/repo#number, or sync_issues and list_milestones."
+        )),
+        _ => Err(format!("Several repos have a milestone '{q}': use owner/repo#number.")),
+    }
+}
+
+fn cached_milestones(cache: &Value) -> Vec<&Value> {
+    cache["repos"]
+        .as_object()
+        .into_iter()
+        .flat_map(|r| r.values())
+        .flat_map(|r| r["milestones"].as_array().into_iter().flatten())
+        .collect()
+}
+
 fn arg_issue(a: &Value) -> R<Option<Value>> {
     match arg_str(a, "issue") {
         None => Ok(None),
@@ -776,6 +831,125 @@ fn load_boards(p: &Proj) -> R<Vec<BoardFile>> {
     Ok(out)
 }
 
+/// Puts the board in the sidebar group named `group` (case-insensitive; made when new), or in none
+/// for "". As `setBoardGroup` / `createBoardGroup` in src/lib/store.ts; no group left means no `boardGroups`.
+fn set_board_group(project: &mut Value, board_id: &str, group: &str) {
+    let mut groups = project["boardGroups"].as_array().cloned().unwrap_or_default();
+    for g in &mut groups {
+        let ids: Vec<String> = str_list(&g["boardIds"]).into_iter().filter(|b| b != board_id).collect();
+        g["boardIds"] = json!(ids);
+    }
+    if !group.is_empty() {
+        match groups.iter_mut().find(|g| eq_ci(&s(g, "name"), group)) {
+            Some(g) => g["boardIds"].as_array_mut().unwrap().push(json!(board_id)),
+            None => groups.push(json!({ "id": new_id(), "name": group, "boardIds": [board_id] })),
+        }
+    }
+    if groups.is_empty() {
+        if let Some(o) = project.as_object_mut() {
+            o.remove("boardGroups");
+        }
+    } else {
+        project["boardGroups"] = json!(groups);
+    }
+}
+
+/// The vault's board templates (`.astali/templates/*.json`, see src/lib/templates.ts), by name.
+fn load_templates(vault: &Path) -> Vec<Value> {
+    let mut out: Vec<Value> = std::fs::read_dir(vault.join(".astali").join("templates"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .filter_map(|p| vaultfs::read_json(&p).ok())
+        .filter(|t| t["board"]["columns"].is_array() && !s(t, "name").is_empty())
+        .collect();
+    out.sort_by_key(|t| s(t, "name").to_lowercase());
+    out
+}
+
+/// A new kanban board named `name` from a template, with ids of its own; as `boardFromTemplate` in
+/// src/lib/templates.ts (tasks keep no issue, milestone, due date or links, and start unchecked).
+fn board_from_template(t: &Value, name: &str) -> Value {
+    let at = now_iso();
+    let src = &t["board"];
+    let cols: HashMap<String, String> = src["columns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| (s(c, "id"), new_id()))
+        .collect();
+    let mut ids: HashMap<String, String> = HashMap::new();
+    let mut tasks = Map::new();
+    for (id, task) in src["tasks"].as_object().into_iter().flatten() {
+        let new = new_id();
+        ids.insert(id.clone(), new.clone());
+        let mut task = task.clone();
+        if let Some(o) = task.as_object_mut() {
+            o.remove("links");
+            o.remove("milestone");
+        }
+        task["id"] = json!(new);
+        task["issue"] = Value::Null;
+        task["dueDate"] = Value::Null;
+        if let Some(items) = task["checklist"].as_array_mut() {
+            for i in items {
+                i["done"] = json!(false);
+            }
+        }
+        task["createdAt"] = json!(at);
+        task["updatedAt"] = json!(at);
+        tasks.insert(new, task);
+    }
+    let columns: Vec<Value> = src["columns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| {
+            let mut c = c.clone();
+            c["id"] = json!(cols[&s(&c, "id")]);
+            c["taskIds"] = json!(str_list(&c["taskIds"])
+                .iter()
+                .filter_map(|id| ids.get(id))
+                .collect::<Vec<_>>());
+            c
+        })
+        .collect();
+    let mut b = json!({ "schemaVersion": 1, "id": new_id(), "name": name, "description": src["description"].as_str().unwrap_or(""),
+                        "columns": columns, "tasks": tasks, "createdAt": at, "updatedAt": at });
+    if let Some(done) = src["doneColumn"].as_str().and_then(|d| cols.get(d)) {
+        b["doneColumn"] = json!(done);
+    }
+    for k in ["autoArchive", "autoDone"] {
+        if src[k] == true {
+            b[k] = json!(true);
+        }
+    }
+    b
+}
+
+/// Parsed board files by path, with the size and time they were read at. Most tools read every
+/// board of the project (for links and tags), and the server lives as long as its client.
+type BoardCache = HashMap<PathBuf, (u64, std::time::SystemTime, Value)>;
+static BOARD_CACHE: std::sync::Mutex<Option<BoardCache>> = std::sync::Mutex::new(None);
+
+/// A board file, parsed again only when it changed on disk since the last read.
+fn read_board_cached(path: &Path) -> Option<Value> {
+    let meta = std::fs::metadata(path).ok()?;
+    let stamp = (meta.len(), meta.modified().ok()?);
+    let mut cache = BOARD_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = cache.get_or_insert_with(HashMap::new);
+    if let Some((len, at, data)) = cache.get(path) {
+        if (*len, *at) == stamp {
+            return Some(data.clone());
+        }
+    }
+    let data = vaultfs::read_json(path).ok()?;
+    cache.insert(path.to_path_buf(), (stamp.0, stamp.1, data.clone()));
+    Some(data)
+}
+
 /// Every board file of the project, archived boards included.
 fn load_board_files(p: &Proj) -> R<Vec<BoardFile>> {
     let dir = boards_dir(p);
@@ -787,7 +961,7 @@ fn load_board_files(p: &Proj) -> R<Vec<BoardFile>> {
         let e = e.map_err(|e| e.to_string())?;
         let path = e.path();
         if path.extension().and_then(|x| x.to_str()) == Some("json") {
-            if let Ok(data) = vaultfs::read_json(&path) {
+            if let Some(data) = read_board_cached(&path) {
                 out.push(BoardFile { path, data });
             }
         }
@@ -933,6 +1107,62 @@ pub(crate) fn auto_archives(b: &Value, col: &str) -> bool {
 }
 
 /// Puts a task at the front of the board's archive, as archived from column `from`.
+/// State ("open"/"closed") of an issue in the issue cache, if it holds it.
+fn cached_issue_state(cache: &Value, issue: &Value) -> Option<String> {
+    let number = issue["number"].as_u64()?;
+    cache["repos"][s(issue, "repo")]["issues"]
+        .as_array()?
+        .iter()
+        .find(|i| i["number"].as_u64() == Some(number))
+        .map(|i| s(i, "state"))
+}
+
+/// Moves into the done column (or its archive, when it auto-archives) the tasks whose linked issue is
+/// closed in `cache`: all of them without `prev`, else only those still open in `prev`. As
+/// `finishClosedIssueTasks` in src/lib/store.ts. Returns the titles moved.
+fn finish_closed_issue_tasks(b: &mut Value, cache: &Value, prev: Option<&Value>) -> Vec<String> {
+    let Some(done) = done_column(b) else { return vec![] };
+    let mut ids = vec![];
+    for c in b["columns"].as_array().into_iter().flatten() {
+        if s(c, "id") == done || view_column(c) {
+            continue;
+        }
+        for id in str_list(&c["taskIds"]) {
+            let issue = &b["tasks"][&id]["issue"];
+            let closed = cached_issue_state(cache, issue).as_deref() == Some("closed");
+            let was_open = prev.is_none_or(|p| cached_issue_state(p, issue).as_deref() == Some("open"));
+            if closed && was_open {
+                ids.push(id);
+            }
+        }
+    }
+    let archive = auto_archives(b, &done);
+    let mut titles = vec![];
+    for id in ids {
+        remove_task_from_columns(b, &id);
+        let now = now_iso();
+        if archive {
+            let Some(mut task) = tasks_mut(b).remove(&id) else {
+                continue;
+            };
+            task["updatedAt"] = json!(now);
+            titles.push(s(&task, "title"));
+            push_archive(b, task, &done);
+        } else {
+            titles.push(s(&b["tasks"][&id], "title"));
+            b["tasks"][&id]["updatedAt"] = json!(now);
+            if let Some(col) = columns_mut(b).iter_mut().find(|c| s(c, "id") == done) {
+                if let Some(list) = col["taskIds"].as_array_mut() {
+                    list.push(json!(id));
+                } else {
+                    col["taskIds"] = json!([id]);
+                }
+            }
+        }
+    }
+    titles
+}
+
 fn push_archive(b: &mut Value, task: Value, from: &str) {
     let rest = b["archive"].as_array().cloned().unwrap_or_default();
     let entry = json!({ "task": task, "from": from, "at": now_iso() });
@@ -1211,6 +1441,9 @@ fn task_view(
 ) -> Value {
     let mut v = json!({ "id": t["id"], "title": t["title"], "priority": t["priority"], "labels": t["labels"],
                         "dueDate": t["dueDate"], "issue": t["issue"] });
+    if t["milestone"].is_object() {
+        v["milestone"] = json!(format!("{}#{}", s(&t["milestone"], "repo"), t["milestone"]["number"]));
+    }
     if !links_of(t).is_empty() || targets.contains(&(s(board, "id"), s(t, "id"))) {
         let (blocks, blocked_by, relates) = task_links(boards, &s(board, "id"), &s(t, "id"));
         for (k, l) in [("blocks", blocks), ("blockedBy", blocked_by), ("relatesTo", relates)] {
@@ -2491,7 +2724,25 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let (archived, boards): (Vec<BoardFile>, Vec<BoardFile>) = load_board_files(&p)?
                 .into_iter()
                 .partition(|b| is_archived_board(&b.data));
-            let mut out = json!({ "project": p.data["name"], "boards": boards.iter().map(|b| board_summary(&b.data)).collect::<Vec<_>>() });
+            let group_of = |id: &str| {
+                p.data["boardGroups"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|g| str_list(&g["boardIds"]).iter().any(|b| b == id))
+                    .map(|g| g["name"].clone())
+            };
+            let summaries: Vec<Value> = boards
+                .iter()
+                .map(|b| {
+                    let mut v = board_summary(&b.data);
+                    if let Some(g) = group_of(&s(&b.data, "id")) {
+                        v["group"] = g;
+                    }
+                    v
+                })
+                .collect();
+            let mut out = json!({ "project": p.data["name"], "boards": summaries });
             if !archived.is_empty() {
                 out["archivedBoards"] = archived
                     .iter()
@@ -2551,6 +2802,7 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 let mut v = json!({ "id": c["id"], "name": c["name"], "color": c["color"], "wipLimit": c["wipLimit"], "tasks": ts });
                 if is_done { v["done"] = json!(true); }
                 if is_done && b.data["autoArchive"] == true { v["autoArchive"] = json!(true); }
+                if is_done && b.data["autoDone"] == true { v["autoDone"] = json!(true); }
                 if shown < held.len() { v["moreTasks"] = json!(held.len() - shown); }
                 v
             }).collect();
@@ -2570,7 +2822,23 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 .map(|c| c.iter().filter_map(Value::as_str).map(String::from).collect());
             let mut board = new_board(name, arg_str(a, "description").unwrap_or(""), cols);
             match arg_str(a, "kind").unwrap_or("kanban") {
-                "kanban" => {}
+                "kanban" => {
+                    if let Some(q) = arg_str(a, "template").map(str::trim).filter(|q| !q.is_empty()) {
+                        let all = load_templates(&ctx.vault()?);
+                        let t = all
+                            .iter()
+                            .find(|t| s(t, "id") == q || eq_ci(&s(t, "name"), q))
+                            .ok_or_else(|| {
+                                let names: Vec<String> = all.iter().map(|t| s(t, "name")).collect();
+                                format!("Template '{q}' not found. Available: {}", list_or_none(&names))
+                            })?;
+                        let description = arg_str(a, "description");
+                        board = board_from_template(t, name);
+                        if let Some(d) = description {
+                            board["description"] = json!(d);
+                        }
+                    }
+                }
                 "notes" => {
                     board["kind"] = json!("notes");
                     board["columns"] = json!([]);
@@ -2598,6 +2866,17 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             add_board(ctx, &mut p, &board)?;
             Ok(json!({ "created": board_summary(&board) }))
         }
+        "list_board_templates" => {
+            let out: Vec<Value> = load_templates(&ctx.vault()?)
+                .iter()
+                .map(|t| {
+                    json!({ "id": t["id"], "name": t["name"],
+                            "columns": t["board"]["columns"].as_array().into_iter().flatten().map(|c| c["name"].clone()).collect::<Vec<_>>(),
+                            "tasks": t["board"]["tasks"].as_object().map_or(0, Map::len) })
+                })
+                .collect();
+            Ok(json!({ "templates": out }))
+        }
         "update_board" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
             let mut b = find_board(&p, req_str(a, "board")?)?;
@@ -2617,6 +2896,11 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 b.data["noteLimit"] = json!(l);
             }
             save_board(ctx, &mut b)?;
+            if let Some(g) = arg_str(a, "group").map(str::trim) {
+                let mut p = p;
+                set_board_group(&mut p.data, &s(&b.data, "id"), g);
+                save_project(ctx, &mut p)?;
+            }
             Ok(json!({ "updated": board_summary(&b.data) }))
         }
         "delete_board" => {
@@ -2751,6 +3035,18 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                     o.remove("autoArchive");
                 }
             }
+            if let Some(on) = a.get("auto_done").and_then(Value::as_bool) {
+                if done_column(&b.data).as_deref() != b.data["columns"][i]["id"].as_str() {
+                    return Err("Only the done column can take tasks whose issue closed".into());
+                }
+                if on {
+                    let cache = vaultfs::read_json(&issue_cache_path(&p)).unwrap_or(json!({ "repos": {} }));
+                    finish_closed_issue_tasks(&mut b.data, &cache, None);
+                    b.data["autoDone"] = json!(true);
+                } else if let Some(o) = b.data.as_object_mut() {
+                    o.remove("autoDone");
+                }
+            }
             let c = &mut columns_mut(&mut b.data)[i];
             if tags.is_some() || m.is_some() {
                 let Some(src) = tag_source(c).cloned() else {
@@ -2856,6 +3152,10 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 "dueDate": arg_due(a)?.unwrap_or(Value::Null), "issue": arg_issue(a)?.unwrap_or(Value::Null),
                 "checklist": checklist, "createdAt": t, "updatedAt": t,
             });
+            let mut task = task;
+            if let Some(m) = arg_milestone(a, &p)?.filter(Value::is_object) {
+                task["milestone"] = m;
+            }
             let id = s(&task, "id");
             tasks_mut(&mut b.data).insert(id.clone(), task.clone());
             let col = &mut columns_mut(&mut b.data)[ci];
@@ -2878,6 +3178,7 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let priority = arg_priority(a)?;
             let due = arg_due(a)?;
             let issue = arg_issue(a)?;
+            let milestone = arg_milestone(a, &p)?;
             let t = tasks_mut(&mut b.data).get_mut(&id).unwrap();
             if let Some(v) = arg_str(a, "title").filter(|v| !v.trim().is_empty()) {
                 t["title"] = json!(v.trim());
@@ -2896,6 +3197,15 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             }
             if let Some(v) = issue {
                 t["issue"] = v;
+            }
+            match milestone {
+                Some(Value::Null) => {
+                    if let Some(o) = t.as_object_mut() {
+                        o.remove("milestone");
+                    }
+                }
+                Some(m) => t["milestone"] = m,
+                None => {}
             }
             if let Some(cl) = a.get("checklist").and_then(Value::as_array) {
                 t["checklist"] = Value::Array(cl.iter().map(|i| json!({ "id": new_id(), "text": s(i, "text"), "done": i["done"].as_bool().unwrap_or(false) })).collect());
@@ -3709,14 +4019,25 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             for r in p.data["repos"].as_array().cloned().unwrap_or_default() {
                 let key = format!("{}/{}", s(&r, "owner"), s(&r, "repo"));
                 let (owner, name) = (s(&r, "owner"), s(&r, "repo"));
-                let fetched = crate::gh::fetch_issues(&owner, &name, token.as_deref())
-                    .and_then(|issues| Ok((issues, crate::gh::fetch_labels(&owner, &name, token.as_deref())?)));
+                let fetched = crate::gh::fetch_issues(&owner, &name, token.as_deref()).and_then(|issues| {
+                    let labels = crate::gh::fetch_labels(&owner, &name, token.as_deref())?;
+                    Ok((
+                        issues,
+                        labels,
+                        crate::gh::fetch_milestones(&owner, &name, token.as_deref())?,
+                    ))
+                });
                 match fetched {
-                    Ok((issues, labels)) => {
-                        report.push(format!("{key}: {} issues, {} labels", issues.len(), labels.len()));
+                    Ok((issues, labels, milestones)) => {
+                        report.push(format!(
+                            "{key}: {} issues, {} labels, {} milestones",
+                            issues.len(),
+                            labels.len(),
+                            milestones.len()
+                        ));
                         repos.insert(
                             key,
-                            json!({ "fetchedAt": now_iso(), "issues": issues, "labels": labels }),
+                            json!({ "fetchedAt": now_iso(), "issues": issues, "labels": labels, "milestones": milestones }),
                         );
                     }
                     Err(e) => {
@@ -3728,8 +4049,55 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             if repos.is_empty() {
                 return Err("Project has no GitHub repos. Add some with update_project.".into());
             }
-            vaultfs::write_json(&issue_cache_path(&p), &json!({ "repos": repos }))?;
-            Ok(json!({ "synced": report }))
+            let prev = vaultfs::read_json(&issue_cache_path(&p)).ok();
+            let cache = json!({ "repos": repos });
+            vaultfs::write_json(&issue_cache_path(&p), &cache)?;
+            // Boards with auto done take the tasks whose issue closed since the last sync.
+            let mut finished = vec![];
+            if let Some(prev) = prev {
+                for mut b in load_boards(&p)? {
+                    if b.data["autoDone"] == true && kanban(&b.data).is_ok() {
+                        let titles = finish_closed_issue_tasks(&mut b.data, &cache, Some(&prev));
+                        if !titles.is_empty() {
+                            save_board(ctx, &mut b)?;
+                            finished.extend(titles);
+                        }
+                    }
+                }
+            }
+            let mut out = json!({ "synced": report });
+            if !finished.is_empty() {
+                out["finished"] = json!(finished);
+            }
+            Ok(out)
+        }
+        "list_milestones" => {
+            let p = find_project(ctx, req_str(a, "project")?)?;
+            let state = arg_str(a, "state").unwrap_or("open");
+            let cache = vaultfs::read_json(&issue_cache_path(&p)).unwrap_or(json!({ "repos": {} }));
+            let mut linked: HashMap<String, Vec<Value>> = HashMap::new();
+            for b in load_boards(&p)? {
+                for t in b.data["tasks"].as_object().into_iter().flat_map(|m| m.values()) {
+                    if t["milestone"].is_object() {
+                        let k = format!("{}#{}", s(&t["milestone"], "repo"), t["milestone"]["number"]);
+                        linked
+                            .entry(k)
+                            .or_default()
+                            .push(json!({ "board": b.data["name"], "task": t["id"], "title": t["title"] }));
+                    }
+                }
+            }
+            let out: Vec<Value> = cached_milestones(&cache)
+                .into_iter()
+                .filter(|m| state == "all" || s(m, "state") == state)
+                .map(|m| {
+                    let k = format!("{}#{}", s(m, "repo"), m["number"]);
+                    json!({ "ref": k, "title": m["title"], "state": m["state"], "dueOn": m["dueOn"],
+                            "openIssues": m["openIssues"], "closedIssues": m["closedIssues"], "url": m["url"],
+                            "tasks": linked.remove(&k).unwrap_or_default() })
+                })
+                .collect();
+            Ok(json!({ "milestones": out }))
         }
         "list_issues" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
@@ -4015,6 +4383,60 @@ mod tests {
     }
 
     #[test]
+    fn tasks_link_milestones_by_ref_or_title() {
+        let vault = std::env::temp_dir().join(format!("astali-milestone-test-{}", super::new_id()));
+        std::fs::create_dir_all(vault.join("p").join(".cache")).unwrap();
+        std::fs::write(
+            vault.join("p").join("project.json"),
+            json!({ "id": "p", "name": "P", "boardOrder": [] }).to_string(),
+        )
+        .unwrap();
+        let m = |n: u64, title: &str| {
+            json!({ "repo": "o/r", "number": n, "title": title, "state": "open",
+                                              "openIssues": 1, "closedIssues": 3, "url": "u" })
+        };
+        std::fs::write(
+            vault.join("p").join(".cache").join("github-issues.json"),
+            json!({ "repos": { "o/r": { "issues": [], "milestones": [m(1, "Beta"), m(2, "1.0")] } } }).to_string(),
+        )
+        .unwrap();
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args);
+        call("create_board", json!({ "project": "P", "name": "Work" })).unwrap();
+        call(
+            "create_task",
+            json!({ "project": "P", "board": "Work", "title": "A", "milestone": "beta" }),
+        )
+        .unwrap();
+        call("create_task", json!({ "project": "P", "board": "Work", "title": "B" })).unwrap();
+        call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "B",
+                                    "milestone": "https://github.com/o/r/milestone/2" }),
+        )
+        .unwrap();
+        assert!(call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "B", "milestone": "Gamma" })
+        )
+        .is_err());
+        let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
+        let tasks = &board["columns"][0]["tasks"];
+        assert_eq!(tasks[0]["milestone"], "o/r#1");
+        assert_eq!(tasks[1]["milestone"], "o/r#2");
+        let list = call("list_milestones", json!({ "project": "P" })).unwrap();
+        assert_eq!(list["milestones"][0]["tasks"][0]["title"], "A");
+        call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "A", "milestone": "" }),
+        )
+        .unwrap();
+        let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
+        assert!(board["columns"][0]["tasks"][0].get("milestone").is_none());
+        std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
     fn search_finds_every_kind_and_ranks_titles_first() {
         let vault = std::env::temp_dir().join(format!("astali-search-test-{}", super::new_id()));
         std::fs::create_dir_all(vault.join("p").join("boards")).unwrap();
@@ -4163,6 +4585,32 @@ mod tests {
         let found = call("search_terms", json!({ "project": "P" })).unwrap();
         assert_eq!(found["total"], 2);
         std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
+    fn closed_issues_finish_their_tasks() {
+        let mut b = json!({
+            "columns": [
+                { "id": "todo", "taskIds": ["a", "b", "c"] },
+                { "id": "done", "taskIds": [] }
+            ],
+            "tasks": {
+                "a": { "id": "a", "title": "A", "issue": { "repo": "o/r", "number": 1 } },
+                "b": { "id": "b", "title": "B", "issue": { "repo": "o/r", "number": 2 } },
+                "c": { "id": "c", "title": "C", "issue": null }
+            }
+        });
+        let issues = |one: &str, two: &str| json!({ "repos": { "o/r": { "issues": [{ "number": 1, "state": one }, { "number": 2, "state": two }] } } });
+        // A sync moves only the tasks whose issue closed since the last one.
+        let moved =
+            super::finish_closed_issue_tasks(&mut b, &issues("closed", "closed"), Some(&issues("open", "closed")));
+        assert_eq!(moved, vec!["A"]);
+        assert_eq!(b["columns"][0]["taskIds"], json!(["b", "c"]));
+        assert_eq!(b["columns"][1]["taskIds"], json!(["a"]));
+        // Turning auto done on takes every task whose issue is closed.
+        let moved = super::finish_closed_issue_tasks(&mut b, &issues("closed", "closed"), None);
+        assert_eq!(moved, vec!["B"]);
+        assert_eq!(b["columns"][0]["taskIds"], json!(["c"]));
     }
 
     #[test]

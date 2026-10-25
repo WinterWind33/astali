@@ -1,6 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 import {
   cancelWrites,
@@ -18,13 +17,21 @@ import {
   setWriteListener,
   writeNow,
 } from "./fs";
-import { GitHubError, fetchBranchPr, fetchRepoIssues, fetchRepoLabels, fetchTokenStatus, repoChanged } from "./github";
+import {
+  GitHubError,
+  fetchBranchPr,
+  fetchRepoIssues,
+  fetchRepoLabels,
+  fetchRepoMilestones,
+  fetchTokenStatus,
+  repoChanged,
+} from "./github";
 import { decisionFileName, decisionLength, normalizeDecision } from "./decisions";
 import { doneColumn, followLabels, isViewColumn } from "./labelColumns";
 import { hasTag, tagColumnName, tagColor, tagKey } from "./tags";
 import { clip, newNote, normalizeNoteLimit, noteLength } from "./notes";
 import { definitionLength, findTerm, isGlossary, normalizeTerm } from "./glossary";
-import { linkTasks, pruneLinks, retargetLinks, unlinkTasks, type LinkKind, type TaskRef } from "./links";
+import { boardOfTask, linkTasks, pruneLinks, retargetLinks, unlinkTasks, type LinkKind, type TaskRef } from "./links";
 import type {
   ArchivedTask,
   AppConfig,
@@ -45,6 +52,8 @@ import type {
   HistoryEntry,
   RepoInfo,
   IssueCache,
+  IssueRef,
+  BoardGroup,
   Project,
   ProjectEntry,
   ProjectView,
@@ -57,6 +66,14 @@ import type {
 } from "./types";
 import { now, repoKey, slugify, uid } from "./util";
 import { compareVersions, releasesBetween } from "./changelog";
+import {
+  boardFromTemplate,
+  loadTemplates,
+  templateFile,
+  templateFileName,
+  templateFromBoard,
+  type TemplateEntry,
+} from "./templates";
 import {
   boardFile,
   boardFileName,
@@ -146,8 +163,12 @@ interface State {
   historyRev: number;
   /** Task cards briefly highlighted after jumping to them from the activity view. */
   highlight: string[];
+  /** Tasks of the open board picked with Ctrl/⌘- or Shift-click, to change together. */
+  selection: string[];
   /** A task to open once its board is shown (following a link from another board). */
   pendingTask: string | null;
+  /** The vault's board templates, by name. */
+  templates: TemplateEntry[];
 }
 
 const initial: State = {
@@ -159,6 +180,7 @@ const initial: State = {
   boards: {},
   archivedBoards: {},
   decisions: {},
+  templates: [],
   issues: { repos: {} },
   syncing: false,
   toasts: [],
@@ -172,6 +194,7 @@ const initial: State = {
   whatsNew: null,
   historyRev: 0,
   highlight: [],
+  selection: [],
   pendingTask: null,
 };
 
@@ -438,19 +461,24 @@ export function dismissWhatsNew() {
 // ---------------------------------------------------------------- vault
 
 export async function pickVault() {
-  const dir = await openDialog({ directory: true, multiple: false, title: "Choose a folder for your vault" });
-  if (typeof dir === "string") await openVault(dir);
+  // The backend shows the dialog, so only a folder the user really picked can become a vault (D-19).
+  const dir = await invoke<string | null>("pick_vault_folder", { title: "Choose a folder for your vault" });
+  if (dir) await openVault(dir);
 }
 
 export async function openVault(path: string) {
   const vault = path.replace(/\\/g, "/").replace(/\/+$/, "");
   // Finish saving the vault we are leaving before its state is dropped.
   if (get().vault) await flushWrites().catch(() => {});
+  // From here on the backend reads and writes only inside this folder.
+  await invoke("open_vault", { path: vault });
   const name = await ensureVault(vault);
   const projects = await loadProjects(vault);
+  const templates = await loadTemplates(vault).catch(() => []);
   set({
     vault,
     projects,
+    templates,
     route: { name: "home" },
     boards: {},
     archivedBoards: {},
@@ -499,6 +527,7 @@ export async function closeVault() {
     boards: {},
     archivedBoards: {},
     decisions: {},
+    templates: [],
     issues: { repos: {} },
     git: null,
     repo: null,
@@ -1074,7 +1103,7 @@ export async function openProject(id: string, view?: ProjectView) {
 
 export function setView(view: ProjectView) {
   const r = get().route;
-  if (r.name === "project") set({ route: { ...r, view } });
+  if (r.name === "project") set({ route: { ...r, view }, selection: [] });
 }
 
 // ---------------------------------------------------------------- boards
@@ -1102,6 +1131,46 @@ export async function createBoard(name: string, plan?: Plan | "notes") {
       : plan
         ? newPlanBoard(name.trim() || "Untitled plan", plan)
         : newBoard(name.trim() || "Untitled board");
+  const entry: BoardEntry = { board, file: boardFileName(board) };
+  await writeNow(boardFile(requireVault(), p.dir, entry.file), board);
+  set((s) => ({ boards: { ...s.boards, [board.id]: entry } }));
+  patchProject(p.project.id, (pr) => ({ ...pr, boardOrder: [...pr.boardOrder, board.id] }));
+  setView({ kind: "board", boardId: board.id });
+}
+
+// ---------------------------------------------------------------- board templates
+
+/**
+ * Saves a kanban board as a template of the vault, with or without its tasks. A template of the same
+ * name is replaced.
+ */
+export async function saveBoardAsTemplate(boardId: string, name: string, withTasks: boolean) {
+  const board = get().boards[boardId]?.board;
+  if (!board || board.kind) return;
+  const old = get().templates.find((e) => e.template.name.toLowerCase() === name.trim().toLowerCase());
+  const template = templateFromBoard(board, name, withTasks, old?.template);
+  const entry = { template, file: old?.file ?? templateFileName(template) };
+  await writeNow(templateFile(requireVault(), entry.file), template);
+  set((s) => ({
+    templates: [...s.templates.filter((e) => e.template.id !== template.id), entry].sort((a, b) =>
+      a.template.name.localeCompare(b.template.name),
+    ),
+  }));
+}
+
+export async function deleteTemplate(id: string) {
+  const entry = get().templates.find((e) => e.template.id === id);
+  if (!entry) return;
+  await removePath(templateFile(requireVault(), entry.file));
+  set((s) => ({ templates: s.templates.filter((e) => e.template.id !== id) }));
+}
+
+/** Adds a board made from a template to the open project and opens it. */
+export async function createBoardFromTemplate(id: string, name: string) {
+  const p = currentProject();
+  const t = get().templates.find((e) => e.template.id === id)?.template;
+  if (!p || !t) return;
+  const board = boardFromTemplate(t, name.trim() || t.name);
   const entry: BoardEntry = { board, file: boardFileName(board) };
   await writeNow(boardFile(requireVault(), p.dir, entry.file), board);
   set((s) => ({ boards: { ...s.boards, [board.id]: entry } }));
@@ -1321,6 +1390,51 @@ export function reorderBoards(order: string[]) {
   if (p) patchProject(p.project.id, (pr) => ({ ...pr, boardOrder: order }));
 }
 
+// ---------------------------------------------------------------- board groups
+
+function patchGroups(fn: (groups: BoardGroup[]) => BoardGroup[]) {
+  const p = currentProject();
+  if (!p) return;
+  patchProject(p.project.id, (pr) => {
+    const groups = fn(pr.boardGroups ?? []);
+    const { boardGroups: _, ...rest } = pr;
+    return groups.length ? { ...rest, boardGroups: groups } : rest;
+  });
+}
+
+/** Adds a group to the sidebar, holding `boardIds` (taken out of any other group). Returns its id. */
+export function createBoardGroup(name: string, boardIds: string[] = []) {
+  const id = uid();
+  patchGroups((gs) => [
+    ...gs.map((g) => ({ ...g, boardIds: g.boardIds.filter((b) => !boardIds.includes(b)) })),
+    { id, name: name.trim() || "Group", boardIds },
+  ]);
+  return id;
+}
+
+export function renameBoardGroup(id: string, name: string) {
+  if (name.trim()) patchGroups((gs) => gs.map((g) => (g.id === id ? { ...g, name: name.trim() } : g)));
+}
+
+/** Removes the group; its boards stay, outside any group. */
+export function deleteBoardGroup(id: string) {
+  patchGroups((gs) => gs.filter((g) => g.id !== id));
+}
+
+export function toggleBoardGroup(id: string) {
+  patchGroups((gs) => gs.map((g) => (g.id === id ? { ...g, collapsed: !g.collapsed || undefined } : g)));
+}
+
+/** Puts a board in a group, or in none with null. */
+export function setBoardGroup(boardId: string, groupId: string | null) {
+  patchGroups((gs) =>
+    gs.map((g) => {
+      const rest = g.boardIds.filter((b) => b !== boardId);
+      return { ...g, boardIds: g.id === groupId ? [...rest, boardId] : rest };
+    }),
+  );
+}
+
 // ---------------------------------------------------------------- columns
 
 export function addColumn(boardId: string, name: string, color: Color = "slate") {
@@ -1505,6 +1619,70 @@ export function updateTask(boardId: string, taskId: string, patch: Partial<Task>
   );
 }
 
+// ---------------------------------------------------------------- multi-selection
+
+/** Adds the task to the selection, or takes it out. */
+export function toggleSelected(taskId: string) {
+  set((s) => ({
+    selection: s.selection.includes(taskId) ? s.selection.filter((id) => id !== taskId) : [...s.selection, taskId],
+  }));
+}
+
+/** Selects every task between the last one selected and this one, when both sit in the same column. */
+export function selectRange(taskId: string) {
+  const { selection, boards } = get();
+  const last = selection[selection.length - 1];
+  const board = boards[boardOfTask(boards, taskId) ?? ""]?.board;
+  const col = board?.columns.find((c) => c.taskIds.includes(taskId) && (!last || c.taskIds.includes(last)));
+  if (!col || !last) return toggleSelected(taskId);
+  const [a, b] = [col.taskIds.indexOf(last), col.taskIds.indexOf(taskId)].sort((x, y) => x - y);
+  set({ selection: [...new Set([...selection, ...col.taskIds.slice(a, b + 1)])] });
+}
+
+export function clearSelection() {
+  if (get().selection.length) set({ selection: [] });
+}
+
+/** Changes the selected tasks of a board in one write. */
+export function updateTasks(boardId: string, ids: string[], fn: (t: Task) => Task) {
+  const at = now();
+  patchBoard(boardId, (b) => {
+    const tasks = { ...b.tasks };
+    for (const id of ids) if (tasks[id]) tasks[id] = { ...fn(tasks[id]), updatedAt: at };
+    return { ...b, tasks };
+  });
+}
+
+/** Moves tasks to the end of a column, in board order; into an auto-archiving done column, they're archived. */
+export function moveTasks(boardId: string, ids: string[], columnId: string) {
+  const board = get().boards[boardId]?.board;
+  if (!board) return;
+  const ordered = board.columns.flatMap((c) => c.taskIds).filter((id) => ids.includes(id));
+  if (autoArchives(board, columnId)) {
+    const n = archiveTasks(
+      boardId,
+      ordered.filter((id) => !board.columns.find((c) => c.id === columnId)?.taskIds.includes(id)),
+      columnId,
+    );
+    if (n) toast(`Archived ${n} task${n === 1 ? "" : "s"} automatically`);
+    return;
+  }
+  for (const id of ordered) moveTask(boardId, id, columnId, Number.MAX_SAFE_INTEGER, false);
+}
+
+export function deleteTasks(boardId: string, ids: string[]) {
+  patchBoard(boardId, (b) => {
+    const tasks = { ...b.tasks };
+    for (const id of ids) delete tasks[id];
+    return pruneLinks({
+      ...b,
+      tasks,
+      columns: b.columns.map((c) => ({ ...c, taskIds: c.taskIds.filter((id) => !ids.includes(id)) })),
+    });
+  });
+  set((s) => ({ selection: s.selection.filter((id) => !ids.includes(id)) }));
+}
+
 export function deleteTask(boardId: string, taskId: string) {
   patchBoard(boardId, (b) => {
     const tasks = { ...b.tasks };
@@ -1605,6 +1783,49 @@ export function setAutoArchive(boardId: string, on: boolean): number {
   const count = on && done ? archiveTasks(boardId, done.taskIds) : 0;
   patchBoard(boardId, (b) => ({ ...b, autoArchive: on || undefined }));
   return count;
+}
+
+/** The cached state of an issue, if the cache has it. */
+function issueState(cache: IssueCache, ref: IssueRef) {
+  return cache.repos[ref.repo]?.issues.find((i) => i.number === ref.number)?.state;
+}
+
+/**
+ * Moves into the done column the tasks of `boardId` whose linked issue is closed: every one when `prev`
+ * is absent (auto done was just turned on), else only those whose issue closed since `prev`, so a task
+ * taken back out of the done column stays out. Returns how many it moved.
+ */
+function finishClosedIssueTasks(boardId: string, prev?: IssueCache): number {
+  const board = get().boards[boardId]?.board;
+  const done = board && doneColumn(board);
+  if (!board || !done) return 0;
+  const cache = get().issues;
+  let moved = 0;
+  for (const col of board.columns) {
+    if (col.id === done.id || isViewColumn(col)) continue;
+    for (const id of col.taskIds) {
+      const ref = board.tasks[id]?.issue;
+      if (!ref || issueState(cache, ref) !== "closed") continue;
+      if (prev && issueState(prev, ref) !== "open") continue;
+      moveTask(boardId, id, done.id, Number.MAX_SAFE_INTEGER);
+      moved++;
+    }
+  }
+  return moved;
+}
+
+/** After an issue sync: finishes the tasks whose issue just closed, on boards with auto done on. */
+function autoFinishTasks(prev: IssueCache) {
+  let moved = 0;
+  for (const { board } of Object.values(get().boards))
+    if (board.autoDone) moved += finishClosedIssueTasks(board.id, prev);
+  if (moved) toast(`${moved} task${moved === 1 ? "" : "s"} finished: their issue was closed`);
+}
+
+/** Turns auto done on (finishing the tasks whose issue is closed already) or off. Returns how many tasks it moved. */
+export function setAutoDone(boardId: string, on: boolean): number {
+  patchBoard(boardId, (b) => ({ ...b, autoDone: on || undefined }));
+  return on ? finishClosedIssueTasks(boardId) : 0;
 }
 
 /**
@@ -1767,8 +1988,12 @@ export async function syncIssues(opts: { quiet?: boolean } = {}) {
       try {
         // Records the change markers first, so a change made during the fetch is seen by the next poll.
         await repoChanged(r, token);
-        const [issues, labels] = await Promise.all([fetchRepoIssues(r, token), fetchRepoLabels(r, token)]);
-        repos[key] = { fetchedAt: now(), issues, labels };
+        const [issues, labels, milestones] = await Promise.all([
+          fetchRepoIssues(r, token),
+          fetchRepoLabels(r, token),
+          fetchRepoMilestones(r, token),
+        ]);
+        repos[key] = { fetchedAt: now(), issues, labels, milestones };
         total += issues.length;
       } catch (e) {
         failures++;
@@ -1778,6 +2003,7 @@ export async function syncIssues(opts: { quiet?: boolean } = {}) {
           fetchedAt: prev?.fetchedAt ?? now(),
           issues: prev?.issues ?? [],
           labels: prev?.labels,
+          milestones: prev?.milestones,
           error: (e as Error).message,
         };
         if (!opts.quiet || !(e instanceof GitHubError && e.status === 403))
@@ -1791,6 +2017,7 @@ export async function syncIssues(opts: { quiet?: boolean } = {}) {
     const prev = get().issues;
     set({ issues: cache });
     reconcileLabelColumns(prev, cache);
+    autoFinishTasks(prev);
     await writeNow(issueCacheFile(requireVault(), p.dir), cache);
   }
   set({ syncing: false });
@@ -1901,6 +2128,7 @@ export async function refreshFromDisk(changed: string[]) {
     .filter((p) => p.startsWith(v + "/") && !p.endsWith(".tmp~"))
     .map((p) => p.slice(v.length + 1));
   if (all.includes(HISTORY_FILE)) set((s) => ({ historyRev: s.historyRev + 1 }));
+  if (all.some((p) => p.startsWith(".astali/templates/"))) set({ templates: await loadTemplates(vault) });
   const rel = all.filter((p) => !p.startsWith(".astali"));
   if (!rel.length) return;
 
@@ -2001,5 +2229,6 @@ export async function refreshFromDisk(changed: string[]) {
     const next = await loadIssueCache(vault, p.dir);
     set({ issues: next });
     reconcileLabelColumns(prev, next);
+    autoFinishTasks(prev);
   }
 }

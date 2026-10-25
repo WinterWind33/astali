@@ -1,6 +1,6 @@
 [package]
 name = "astali"
-version = "1.9.0"
+version = "1.10.0"
 description = "A free, local-first planning app: kanban boards, plans, notes and decisions, with a built-in MCP server for AI agents"
 authors = ["Andrea Ballestrazzi"]
 license = "MIT"

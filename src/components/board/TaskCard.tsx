@@ -1,10 +1,11 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useDraggable } from "@dnd-kit/core";
-import { AlignLeft, Ban, Calendar, CheckSquare, Columns3 } from "lucide-react";
+import { AlignLeft, Ban, Calendar, CheckSquare, Columns3, Milestone } from "lucide-react";
+import { findMilestone, milestoneSummary } from "../../lib/milestones";
 import { memo } from "react";
-import { openBlockers } from "../../lib/links";
-import { useStore } from "../../lib/store";
+import { boardOfTask, openBlockers } from "../../lib/links";
+import { clearSelection, selectRange, toggleSelected, useStore } from "../../lib/store";
 import type { Priority, Task } from "../../lib/types";
 import { cx, dueStatus, formatDate } from "../../lib/util";
 import { GhLabelChip, IssueStateIcon, TagChip } from "../ui";
@@ -47,10 +48,12 @@ export const TaskCard = memo(function TaskCard({
   const issue = useStore((s) =>
     task.issue ? s.issues.repos[task.issue.repo]?.issues.find((i) => i.number === task.issue!.number) : undefined,
   );
+  const milestone = useStore((s) => findMilestone(s.issues, task.milestone));
   const highlighted = useStore((s) => s.highlight.includes(task.id));
+  const selected = useStore((s) => s.selection.includes(task.id));
   // Titles joined into one string, so the card only re-renders when its blockers change.
   const blockers = useStore((s) => {
-    const board = Object.values(s.boards).find((e) => e.board.tasks[task.id])?.board;
+    const board = s.boards[boardOfTask(s.boards, task.id) ?? ""]?.board;
     if (!board) return "";
     return openBlockers(s.boards, { board: board.id, task: task.id })
       .map((l) => (l.board.id === board.id ? `“${l.task.title}”` : `“${l.task.title}” (${l.board.name})`))
@@ -62,7 +65,16 @@ export const TaskCard = memo(function TaskCard({
   const ghLabels = (issue?.labels ?? []).filter((l) => !own.has(l.name.toLowerCase())).slice(0, 3);
 
   return (
-    <div className={cx("task-card", `prio-${task.priority}`, highlighted && "highlight")} onClick={onOpen}>
+    <div
+      className={cx("task-card", `prio-${task.priority}`, highlighted && "highlight", selected && "selected")}
+      onClick={(e) => {
+        // Ctrl/⌘-click picks cards to change together; Shift-click a run of them (SelectionPanel).
+        if (e.ctrlKey || e.metaKey) return toggleSelected(task.id);
+        if (e.shiftKey) return selectRange(task.id);
+        clearSelection();
+        onOpen?.();
+      }}
+    >
       {(task.labels.length > 0 || ghLabels.length > 0) && (
         <div className="task-labels">
           {task.labels.map((l) => (
@@ -77,7 +89,13 @@ export const TaskCard = memo(function TaskCard({
         {task.priority !== "none" && <PriorityIcon priority={task.priority} />}
         <span>{task.title}</span>
       </div>
-      {(task.issue || task.dueDate || task.checklist.length > 0 || task.description || columnName || blockers) && (
+      {(task.issue ||
+        task.milestone ||
+        task.dueDate ||
+        task.checklist.length > 0 ||
+        task.description ||
+        columnName ||
+        blockers) && (
         <div className="task-meta">
           {blockers && (
             <span className="task-blocked" title={`Blocked by ${blockers}`}>
@@ -98,6 +116,15 @@ export const TaskCard = memo(function TaskCard({
             >
               {issue ? <IssueStateIcon issue={issue} size={13} /> : <span className="issue-dot" />}
               {task.issue.repo.split("/")[1]}#{task.issue.number}
+            </span>
+          )}
+          {task.milestone && (
+            <span
+              className={cx("task-milestone", milestone?.state)}
+              title={milestone ? milestoneSummary(milestone) : "Not in the local cache — sync issues"}
+            >
+              <Milestone size={12} />
+              {milestone?.title ?? `${task.milestone.repo.split("/")[1]} milestone ${task.milestone.number}`}
             </span>
           )}
           {task.dueDate && (

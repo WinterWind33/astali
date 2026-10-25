@@ -14,6 +14,8 @@ validates input and keeps files consistent. Editing the JSON directly also works
 - `<project-folder>/decisions/*.json` — one file per decision (why the code is the way it is)
 - `<project-folder>/.cache/github-issues.json` — read-only cache of GitHub issues (regenerated on sync)
 - `.astali/vault.json` — marks the folder as a vault; its optional `name` is the vault's name in the app (else the folder's).
+- `.astali/templates/*.json` — kanban board templates: `{ id, name, board: { columns, tasks, doneColumn, … } }`;
+  `create_board` with `template` starts a board from one.
 - `.astali/history.jsonl` — change history written by the app and the MCP server (don't edit it). Edits made
   directly to the JSON files are not recorded there, so they can't be undone from the app
 
