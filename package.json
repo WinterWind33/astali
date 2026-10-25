@@ -1,7 +1,7 @@
 {
   "name": "astali",
   "private": true,
-  "version": "1.10.0",
+  "version": "1.10.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -40,6 +40,6 @@
     "@vitejs/plugin-react": "^6.1.1",
     "prettier": "3.9.9",
     "typescript": "~5.9.3",
-    "vite": "^8.3.2"
+    "vite": "^8.3.5"
   }
 }

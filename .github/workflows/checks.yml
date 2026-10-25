@@ -1,12 +1,12 @@
-# Checks every pull request and every push to main: formatting, types, lints, tests, on each platform.
-# Written in the development repo and synced here; it only runs in the public repo. No secrets: pull requests
+# Checks every pull request and every push: formatting, types, lints, tests, on each platform.
+# Written in the development repo and synced to the public one. In the public repo it runs on every platform; in the
+# development repo only on Linux, on every push, so a branch is checked before it's merged. No secrets: pull requests
 # from forks run it with a read-only token.
 name: Checks
 
 on:
   pull_request:
   push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -17,11 +17,12 @@ concurrency:
 
 jobs:
   checks:
-    if: github.repository == 'WinterWind33/astali'
+    # In the development repo the push already checks a pull request's branch.
+    if: github.repository == 'WinterWind33/astali' || github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest, macos-latest]
+        os: ${{ fromJSON(github.repository == 'WinterWind33/astali' && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
