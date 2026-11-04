@@ -13,10 +13,10 @@ import { useEffect, useMemo, useState } from "react";
 import { clientName, undoWithConfirm } from "../components/ActivityView";
 import { GitBanner } from "../components/GitIgnore";
 import { ProjectDialog } from "../components/ProjectDialog";
-import { EmptyState, Menu, confirm, Github } from "../components/ui";
+import { EmptyState, Menu, confirm, Github, Gitlab } from "../components/ui";
 import { closeVault, deleteProject, loadHistory, openProject, useStore } from "../lib/store";
 import type { HistoryEntry, Project } from "../lib/types";
-import { colorHex, relativeTime } from "../lib/util";
+import { colorHex, relativeTime, repoKey, repoPath } from "../lib/util";
 
 export function Home() {
   const projects = useStore((s) => s.projects);
@@ -116,8 +116,9 @@ export function Home() {
                   <LayoutGrid size={13} /> {p.boardOrder.length} {p.boardOrder.length === 1 ? "board" : "boards"}
                 </span>
                 {p.repos.length > 0 && (
-                  <span title={p.repos.map((r) => `${r.owner}/${r.repo}`).join("\n")}>
-                    <Github size={13} /> {p.repos.length}
+                  <span title={p.repos.map((r) => repoPath(repoKey(r))).join("\n")}>
+                    {p.repos.every((r) => r.provider === "gitlab") ? <Gitlab size={13} /> : <Github size={13} />}{" "}
+                    {p.repos.length}
                   </span>
                 )}
                 <span className="spacer" />

@@ -40,7 +40,7 @@ import {
 } from "../../lib/store";
 import { describeTagSource, tagSource, tagsToAdd } from "../../lib/tags";
 import type { Board, Column, GhIssue, IssueRef, Task } from "../../lib/types";
-import { colorHex, cx, issueKey, relativeTime } from "../../lib/util";
+import { colorHex, cx, issueKey, providerName, relativeTime, repoPath } from "../../lib/util";
 import { ColorPicker } from "../ColorPicker";
 import { InlineEdit, Menu, type MenuItem, Modal, ModalHeader, Popover } from "../ui";
 import { DraggableIssue } from "./IssueCard";
@@ -124,7 +124,11 @@ export function ColumnView({
           icon: label.showClosed ? <EyeOff size={14} /> : <Eye size={14} />,
           onClick: () => updateColumn(board.id, column.id, { source: { ...label, showClosed: !label.showClosed } }),
         },
-        { label: "Open label on GitHub", icon: <Tag size={14} />, onClick: () => openUrl(labelUrl(label)) },
+        {
+          label: `Open label on ${providerName(label.repo)}`,
+          icon: <Tag size={14} />,
+          onClick: () => openUrl(labelUrl(label)),
+        },
         { label: "WIP limit", icon: <Gauge size={14} />, onClick: () => setWipOpen(true) },
       ]
     : [
@@ -176,8 +180,8 @@ export function ColumnView({
                 label: board.autoDone ? "Stop finishing closed issues" : "Finish closed issues",
                 icon: board.autoDone ? <CircleOff size={14} /> : <GitPullRequestClosed size={14} />,
                 title: board.autoDone
-                  ? "Tasks stay where they are when their GitHub issue closes"
-                  : "Move here every task whose linked GitHub issue is closed, now and after each issue sync",
+                  ? "Tasks stay where they are when their linked issue closes"
+                  : "Move here every task whose linked issue is closed, now and after each issue sync",
                 onClick: () => {
                   const on = !board.autoDone;
                   const n = setAutoDone(board.id, on);
@@ -349,7 +353,7 @@ export function ColumnView({
         {isDone && board.autoDone && (
           <span
             className="column-done-mark"
-            title="Finish closed issues: a task moves here when its linked GitHub issue closes"
+            title="Finish closed issues: a task moves here when its linked issue closes"
           >
             <GitPullRequestClosed size={13} />
           </span>
@@ -362,7 +366,7 @@ export function ColumnView({
         {frozen && (
           <span
             className="column-label-gone"
-            title={`Was a live view of the label “${frozen.name}” in ${frozen.repo}, deleted on GitHub ${relativeTime(frozen.deletedAt)}. Its issues were kept as tasks.`}
+            title={`Was a live view of the label “${frozen.name}” in ${repoPath(frozen.repo)}, deleted on ${providerName(frozen.repo)} ${relativeTime(frozen.deletedAt)}. Its issues were kept as tasks.`}
           >
             <Tag size={12} />
           </span>
@@ -611,7 +615,7 @@ function DeleteColumnDialog({
             </select>
           </label>
         ) : liveLabel(column) ? (
-          <p className="muted">Its issues stay as they are on GitHub; only the column is removed.</p>
+          <p className="muted">Its issues stay as they are; only the column is removed.</p>
         ) : column.source?.kind === "tags" ? (
           <p className="muted">Its tasks stay in their columns, with their tags; only the column is removed.</p>
         ) : (

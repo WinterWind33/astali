@@ -10,3 +10,6 @@ src/generated
 /astali-project-vault/AGENTS.md
 /astali-project-vault/project-management/
 # <<< Astali kanban <<<
+
+# Editor workspace
+*.code-workspace

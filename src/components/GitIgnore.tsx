@@ -12,7 +12,7 @@ const CHOICES: { mode: GitIgnoreMode; title: string; text: string }[] = [
   {
     mode: "cache",
     title: "Only Astali's cache",
-    text: "Projects, boards, decisions and history are committed, so they travel with the repository. The GitHub issues cache, rebuilt on every sync, stays out.",
+    text: "Projects, boards, decisions and history are committed, so they travel with the repository. The issues cache, rebuilt on every sync, stays out.",
   },
   {
     mode: "vault",

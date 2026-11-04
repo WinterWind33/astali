@@ -1,5 +1,5 @@
 //! Model Context Protocol server (stdio, JSON-RPC 2.0) that lets AI agents such as Claude
-//! manage an Astali vault: projects, boards, columns, tasks, plans, decisions and cached GitHub issues.
+//! manage an Astali vault: projects, boards, columns, tasks, plans, decisions and cached GitHub and GitLab issues.
 //!
 //! Run with `astali mcp [--vault <path>]`. Without `--vault`, it uses the vault in the repository
 //! it was started in (see `vaultfs::find_vault_near`), or else the vault open in the desktop app,
@@ -178,7 +178,8 @@ fn handle(ctx: &Ctx, msg: &Value) -> Option<Value> {
                     "Astali is a local kanban app. Vault: {} ({}). When the user wants a new vault, make it with \
                      create_vault, which this session then uses. Hierarchy: project → boards → columns → tasks. \
                      Start with list_projects, then get_board to see columns and tasks. Projects, boards and \
-                     columns can be referenced by id or by (case-insensitive) name. GitHub issues are read-only: \
+                     columns can be referenced by id or by (case-insensitive) name. GitHub and gitlab.com issues are read-only \
+                     (a GitLab project's issues are written gitlab:group/sub/project#12, its epics group&5): \
                      use sync_issues to refresh the cache, list_issues to browse, add_issue_as_task to put one on a board \
                      (add_issues_as_tasks for many at once). A column created with a `label` is a live view of the \
                      cached issues carrying that GitHub label: get_board lists them as `issues`, and it can't hold tasks. \
@@ -276,7 +277,10 @@ fn tools() -> Vec<Value> {
     let labels = json!({ "type": "array", "items": { "type": "string" } });
     let position =
         json!({ "type": "integer", "minimum": 0, "description": "0-based index; omit to append at the end" });
-    let issue = s("GitHub issue as \"owner/repo#123\" or an issue URL; empty string to unlink");
+    let issue = s("Issue as \"owner/repo#123\" (GitHub), \"gitlab:group/project#12\" (GitLab) or an issue URL; empty string to unlink");
+    let epic = s(
+        "GitLab epic as \"group/sub&5\", an epic URL, or the title of an epic list_epics shows; empty string to unlink",
+    );
     let milestone = s("GitHub milestone as \"owner/repo#3\", a milestone URL, or the title of a milestone list_milestones shows; empty string to unlink");
     let due = s("Due date YYYY-MM-DD, or empty string to clear");
     let decision = s("Decision as \"D-12\", its number, its id, or its exact title");
@@ -284,6 +288,7 @@ fn tools() -> Vec<Value> {
     let item = s("Item id (from get_plan), or its exact text if unique in the plan");
     let strings = |d: &str| json!({ "type": "array", "items": { "type": "string" }, "description": d });
     let note = s("Note id (from get_board), or its exact title if unique on the board");
+    let task_color = json!({ "type": "string", "description": format!("Background color of the card: a preset ({}) or a hex color \"#rrggbb\"; an empty string clears it", COLORS.join(", ")) });
     let note_color = json!({ "type": "string", "description": format!("A preset ({}) or a hex color \"#rrggbb\"; an empty string makes the note follow its first tag's color", COLORS.join(", ")) });
     let note_limit = json!({ "type": "integer", "minimum": NOTE_LIMIT_MIN, "maximum": NOTE_LIMIT_MAX,
                              "description": format!("Notes boards: most characters a note's title and description may hold together (default {NOTE_LIMIT_DEFAULT})") });
@@ -322,9 +327,9 @@ fn tools() -> Vec<Value> {
         tool("list_projects", "List all projects in the vault with board counts and linked GitHub repos.", json!({}), &[], "read"),
         tool("create_project", "Create a project. It starts with one board named 'Main' with To Do / Doing / Done columns.",
             json!({ "name": s("Project name"), "description": s("Optional description"), "color": color,
-                    "repos": { "type": "array", "items": { "type": "string" }, "description": "GitHub repos as owner/repo" } }),
+                    "repos": { "type": "array", "items": { "type": "string" }, "description": "GitHub repos as owner/repo, gitlab.com projects as gitlab:group/project or their URLs" } }),
             &["name"], "write"),
-        tool("update_project", "Update a project's name, description, color, linked GitHub repos (repos replaces the whole list), tag colors, or decision or glossary length limit.",
+        tool("update_project", "Update a project's name, description, color, linked GitHub repos or GitLab projects (repos replaces the whole list), tag colors, or decision or glossary length limit.",
             json!({ "project": project, "name": s("New name"), "description": s("New description"), "color": color,
                     "repos": { "type": "array", "items": { "type": "string" } },
                     "decision_char_limit": { "type": "integer", "minimum": DECISION_LIMIT_MIN, "maximum": DECISION_LIMIT_MAX,
@@ -390,16 +395,17 @@ fn tools() -> Vec<Value> {
             json!({ "project": project, "board": board, "column": column, "move_tasks_to": s("Column to receive the tasks") }),
             &["project", "board", "column"], "delete"),
 
-        tool("create_task", "Create a task (card). Defaults to the first column. Can link a GitHub issue.",
+        tool("create_task", "Create a task (card). Defaults to the first column. Can link a GitHub or GitLab issue, and a GitLab epic.",
             json!({ "project": project, "board": board, "column": column, "title": s("Title"),
                     "description": s("Markdown description"), "priority": priority, "labels": labels,
-                    "due_date": due, "issue": issue, "milestone": milestone,
+                    "due_date": due, "issue": issue, "milestone": milestone, "epic": epic.clone(), "color": task_color.clone(),
                     "checklist": { "type": "array", "items": { "type": "string" }, "description": "Checklist item texts" },
                     "position": position }),
             &["project", "board", "title"], "write"),
         tool("update_task", "Update fields of a task. Only provided fields change. checklist replaces the whole list.",
             json!({ "project": project, "board": board, "task": task, "title": s("Title"), "description": s("Markdown description"),
                     "priority": priority, "labels": labels, "due_date": due, "issue": issue, "milestone": milestone,
+                    "epic": epic, "color": task_color,
                     "checklist": { "type": "array", "items": { "type": "object",
                         "properties": { "text": { "type": "string" }, "done": { "type": "boolean" } }, "required": ["text"] } } }),
             &["project", "board", "task"], "write"),
@@ -556,17 +562,20 @@ fn tools() -> Vec<Value> {
                     "resolved": { "type": "boolean" }, "decision": s("\"D-12\", or empty string to clear") }),
             &["project", "board", "question"], "write"),
 
-        tool("sync_issues", "Fetch issues from the project's GitHub repos into the local cache (read-only on GitHub).",
+        tool("sync_issues", "Fetch issues and labels from the project's GitHub repos and gitlab.com projects into the local cache, with GitHub milestones and GitLab epics (read-only on both).",
             json!({ "project": project }), &["project"], "write"),
+        tool("list_epics", "List the cached GitLab epics of the groups of a project's gitlab.com projects (sync_issues refreshes them; only Premium and Ultimate groups have epics), with the tasks linked to each.",
+            json!({ "project": project, "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open" } }),
+            &["project"], "read"),
         tool("list_milestones", "List the cached GitHub milestones of a project's repos (sync_issues refreshes them), with their progress and the tasks linked to each.",
             json!({ "project": project, "state": { "type": "string", "enum": ["open", "closed", "all"] } }),
             &["project"], "read"),
-        tool("list_issues", "List cached GitHub issues of a project and where each is linked on boards.",
+        tool("list_issues", "List cached GitHub and GitLab issues of a project and where each is linked on boards.",
             json!({ "project": project, "state": { "type": "string", "enum": ["open", "closed", "all"] },
                     "query": s("Text filter"), "repo": s("owner/repo filter"),
                     "include_prs": { "type": "boolean" }, "limit": { "type": "integer", "minimum": 1 } }),
             &["project"], "read"),
-        tool("add_issue_as_task", "Create a task from a cached GitHub issue, linked to it.",
+        tool("add_issue_as_task", "Create a task from a cached GitHub or GitLab issue, linked to it (and to its GitLab epic, if any).",
             json!({ "project": project, "board": board, "column": column, "issue": issue }),
             &["project", "board", "issue"], "write"),
         tool("add_issues_as_tasks",
@@ -666,6 +675,9 @@ fn arg_due(a: &Value) -> R<Option<Value>> {
 
 fn parse_issue(s: &str) -> R<Value> {
     let s = s.trim();
+    if let Some((repo, n)) = crate::gl::parse_issue(s) {
+        return Ok(json!({ "repo": repo, "number": n }));
+    }
     // https://github.com/owner/repo/issues/12 or .../pull/12
     if let Some(rest) = s.split("github.com/").nth(1) {
         let parts: Vec<&str> = rest.split('/').collect();
@@ -682,7 +694,9 @@ fn parse_issue(s: &str) -> R<Value> {
             }
         }
     }
-    Err(format!("Cannot parse issue '{s}'. Use owner/repo#123 or an issue URL."))
+    Err(format!(
+        "Cannot parse issue '{s}'. Use owner/repo#123, gitlab:group/project#12 or an issue URL."
+    ))
 }
 
 /// The `milestone` argument: `owner/repo#3`, a milestone URL, or the title of a cached milestone of
@@ -731,6 +745,48 @@ fn cached_milestones(cache: &Value) -> Vec<&Value> {
         .collect()
 }
 
+fn cached_epics(cache: &Value) -> Vec<&Value> {
+    let mut seen = HashSet::new();
+    cache["repos"]
+        .as_object()
+        .into_iter()
+        .flat_map(|r| r.values())
+        .flat_map(|r| r["epics"].as_array().into_iter().flatten())
+        .filter(|e| seen.insert(format!("{}&{}", s(e, "group"), e["iid"])))
+        .collect()
+}
+
+/// The `epic` argument: `group/sub&5`, an epic URL, or the title of a cached epic; "" unlinks.
+fn arg_epic(a: &Value, p: &Proj) -> R<Option<Value>> {
+    let Some(q) = arg_str(a, "epic").map(str::trim) else {
+        return Ok(None);
+    };
+    if q.is_empty() {
+        return Ok(Some(Value::Null));
+    }
+    if let Some((group, iid)) = crate::gl::parse_epic(q) {
+        return Ok(Some(json!({ "group": group, "iid": iid })));
+    }
+    let cache = vaultfs::read_json(&issue_cache_path(p)).unwrap_or(json!({ "repos": {} }));
+    let found: Vec<Value> = cached_epics(&cache)
+        .into_iter()
+        .filter(|e| eq_ci(&s(e, "title"), q))
+        .map(|e| json!({ "group": e["group"], "iid": e["iid"] }))
+        .collect();
+    match found.len() {
+        1 => Ok(found.into_iter().next()),
+        0 => Err(format!(
+            "No cached epic '{q}'. Use group&number, or sync_issues and list_epics."
+        )),
+        _ => Err(format!("Several groups have an epic '{q}': use group&number.")),
+    }
+}
+
+/// How an epic ref reads: `group/sub&5`, without the provider.
+fn epic_ref(e: &Value) -> String {
+    format!("{}&{}", s(e, "group").trim_start_matches(crate::gl::PREFIX), e["iid"])
+}
+
 fn arg_issue(a: &Value) -> R<Option<Value>> {
     match arg_str(a, "issue") {
         None => Ok(None),
@@ -751,8 +807,27 @@ fn arg_labels(a: &Value) -> Option<Value> {
     })
 }
 
+/// The issue cache key of a linked repo: `owner/repo`, or `gitlab:group/sub/project`.
+fn repo_key(r: &Value) -> String {
+    let path = format!("{}/{}", s(r, "owner"), s(r, "repo"));
+    if r["provider"] == "gitlab" {
+        format!("{}{path}", crate::gl::PREFIX)
+    } else {
+        path
+    }
+}
+
 fn parse_repo(s: &str) -> R<Value> {
     let s = s.trim().trim_end_matches(".git").trim_end_matches('/');
+    let lab = s
+        .strip_prefix(crate::gl::PREFIX)
+        .or_else(|| s.split("gitlab.com/").nth(1))
+        .or_else(|| s.split("gitlab.com:").nth(1));
+    if let Some(path) = lab {
+        let path = crate::gl::project_path(path.split("/-/").next().unwrap_or(path))?;
+        let (owner, repo) = path.rsplit_once('/').expect("checked by project_path");
+        return Ok(json!({ "owner": owner, "repo": repo, "provider": "gitlab" }));
+    }
     let s = s.split("github.com/").last().unwrap_or(s);
     let parts: Vec<&str> = s.split('/').filter(|p| !p.is_empty()).collect();
     if parts.len() == 2 {
@@ -889,6 +964,7 @@ fn board_from_template(t: &Value, name: &str) -> Value {
         if let Some(o) = task.as_object_mut() {
             o.remove("links");
             o.remove("milestone");
+            o.remove("epic");
         }
         task["id"] = json!(new);
         task["issue"] = Value::Null;
@@ -1443,6 +1519,12 @@ fn task_view(
                         "dueDate": t["dueDate"], "issue": t["issue"] });
     if t["milestone"].is_object() {
         v["milestone"] = json!(format!("{}#{}", s(&t["milestone"], "repo"), t["milestone"]["number"]));
+    }
+    if t["color"].is_string() {
+        v["color"] = t["color"].clone();
+    }
+    if t["epic"].is_object() {
+        v["epic"] = json!(epic_ref(&t["epic"]));
     }
     if !links_of(t).is_empty() || targets.contains(&(s(board, "id"), s(t, "id"))) {
         let (blocks, blocked_by, relates) = task_links(boards, &s(board, "id"), &s(t, "id"));
@@ -2247,7 +2329,7 @@ fn arg_note_limit(a: &Value) -> R<Option<u64>> {
     }
 }
 
-/// A color, or Null for "" (follow the first tag).
+/// A color, or Null for "": a note then follows its first tag, a task loses its tint.
 fn arg_note_color(a: &Value) -> R<Option<Value>> {
     match arg_str(a, "color") {
         Some(c) if c.trim().is_empty() => Ok(Some(Value::Null)),
@@ -3156,6 +3238,12 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             if let Some(m) = arg_milestone(a, &p)?.filter(Value::is_object) {
                 task["milestone"] = m;
             }
+            if let Some(c) = arg_note_color(a)?.filter(Value::is_string) {
+                task["color"] = c;
+            }
+            if let Some(e) = arg_epic(a, &p)?.filter(Value::is_object) {
+                task["epic"] = e;
+            }
             let id = s(&task, "id");
             tasks_mut(&mut b.data).insert(id.clone(), task.clone());
             let col = &mut columns_mut(&mut b.data)[ci];
@@ -3179,6 +3267,8 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let due = arg_due(a)?;
             let issue = arg_issue(a)?;
             let milestone = arg_milestone(a, &p)?;
+            let color = arg_note_color(a)?;
+            let epic = arg_epic(a, &p)?;
             let t = tasks_mut(&mut b.data).get_mut(&id).unwrap();
             if let Some(v) = arg_str(a, "title").filter(|v| !v.trim().is_empty()) {
                 t["title"] = json!(v.trim());
@@ -3205,6 +3295,25 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                     }
                 }
                 Some(m) => t["milestone"] = m,
+                None => {}
+            }
+            match color {
+                // Absent, like on tasks made before colors: no tint.
+                Some(Value::Null) => {
+                    if let Some(o) = t.as_object_mut() {
+                        o.remove("color");
+                    }
+                }
+                Some(c) => t["color"] = c,
+                None => {}
+            }
+            match epic {
+                Some(Value::Null) => {
+                    if let Some(o) = t.as_object_mut() {
+                        o.remove("epic");
+                    }
+                }
+                Some(e) => t["epic"] = e,
                 None => {}
             }
             if let Some(cl) = a.get("checklist").and_then(Value::as_array) {
@@ -4014,10 +4123,37 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
         "sync_issues" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
             let token = vaultfs::github_token_from_config();
+            let gitlab_token = vaultfs::gitlab_token_from_config();
             let mut repos = Map::new();
             let mut report = vec![];
             for r in p.data["repos"].as_array().cloned().unwrap_or_default() {
-                let key = format!("{}/{}", s(&r, "owner"), s(&r, "repo"));
+                let key = repo_key(&r);
+                if r["provider"] == "gitlab" {
+                    let path = key.trim_start_matches(crate::gl::PREFIX);
+                    match crate::gl::fetch_project(path, gitlab_token.as_deref()) {
+                        Ok(mut got) => {
+                            report.push(format!(
+                                "{key}: {} issues, {} labels, {} epics{}",
+                                got["issues"].as_array().map_or(0, Vec::len),
+                                got["labels"].as_array().map_or(0, Vec::len),
+                                got["epics"].as_array().map_or(0, Vec::len),
+                                got.get("epicsError")
+                                    .map(|e| format!(" (epics not read: {e})"))
+                                    .unwrap_or_default(),
+                            ));
+                            if let Some(o) = got.as_object_mut() {
+                                o.remove("epicsError");
+                                o.insert("fetchedAt".into(), json!(now_iso()));
+                            }
+                            repos.insert(key, got);
+                        }
+                        Err(e) => {
+                            report.push(format!("{key}: ERROR {e}"));
+                            repos.insert(key, json!({ "fetchedAt": now_iso(), "issues": [], "error": e }));
+                        }
+                    }
+                    continue;
+                }
                 let (owner, name) = (s(&r, "owner"), s(&r, "repo"));
                 let fetched = crate::gh::fetch_issues(&owner, &name, token.as_deref()).and_then(|issues| {
                     let labels = crate::gh::fetch_labels(&owner, &name, token.as_deref())?;
@@ -4047,7 +4183,7 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 }
             }
             if repos.is_empty() {
-                return Err("Project has no GitHub repos. Add some with update_project.".into());
+                return Err("Project has no GitHub repos or GitLab projects. Add some with update_project.".into());
             }
             let prev = vaultfs::read_json(&issue_cache_path(&p)).ok();
             let cache = json!({ "repos": repos });
@@ -4070,6 +4206,48 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 out["finished"] = json!(finished);
             }
             Ok(out)
+        }
+        "list_epics" => {
+            let p = find_project(ctx, req_str(a, "project")?)?;
+            let state = arg_str(a, "state").unwrap_or("open");
+            let cache = vaultfs::read_json(&issue_cache_path(&p)).unwrap_or(json!({ "repos": {} }));
+            let mut linked: HashMap<String, Vec<Value>> = HashMap::new();
+            for b in load_boards(&p)? {
+                for t in b.data["tasks"].as_object().into_iter().flat_map(|m| m.values()) {
+                    if t["epic"].is_object() {
+                        linked
+                            .entry(epic_ref(&t["epic"]))
+                            .or_default()
+                            .push(json!({ "board": b.data["name"], "task": t["id"], "title": t["title"] }));
+                    }
+                }
+            }
+            // Issues of the linked projects in each epic, as GitLab reports them.
+            let mut counts: HashMap<String, (u64, u64)> = HashMap::new();
+            for rc in cache["repos"].as_object().into_iter().flat_map(|m| m.values()) {
+                for i in rc["issues"].as_array().into_iter().flatten() {
+                    if i["epic"].is_object() {
+                        let c = counts.entry(epic_ref(&i["epic"])).or_default();
+                        if i["state"] == "closed" {
+                            c.1 += 1
+                        } else {
+                            c.0 += 1
+                        }
+                    }
+                }
+            }
+            let out: Vec<Value> = cached_epics(&cache)
+                .into_iter()
+                .filter(|e| state == "all" || s(e, "state") == state)
+                .map(|e| {
+                    let k = epic_ref(e);
+                    let (open, closed) = counts.get(&k).copied().unwrap_or_default();
+                    json!({ "ref": k, "title": e["title"], "state": e["state"], "startDate": e["startDate"],
+                            "dueDate": e["dueDate"], "url": e["url"], "openIssues": open, "closedIssues": closed,
+                            "tasks": linked.remove(&k).unwrap_or_default() })
+                })
+                .collect();
+            Ok(json!({ "epics": out }))
         }
         "list_milestones" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
@@ -4146,10 +4324,13 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                         iref["number"]
                     )
                 })?;
-            let args = json!({
+            let mut args = json!({
                 "project": req_str(a, "project")?, "board": req_str(a, "board")?, "column": arg_str(a, "column").unwrap_or(""),
                 "title": issue["title"], "issue": format!("{}#{}", issue["repo"].as_str().unwrap_or(&repo), iref["number"]),
             });
+            if issue["epic"].is_object() {
+                args["epic"] = json!(epic_ref(&issue["epic"]));
+            }
             call_tool(ctx, "create_task", &args)
         }
         "add_issues_as_tasks" => {
@@ -4433,6 +4614,130 @@ mod tests {
         .unwrap();
         let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
         assert!(board["columns"][0]["tasks"][0].get("milestone").is_none());
+        std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
+    fn gitlab_projects_issues_and_epics() {
+        assert_eq!(
+            super::parse_repo("https://gitlab.com/grp/sub/proj/-/issues").unwrap(),
+            json!({ "owner": "grp/sub", "repo": "proj", "provider": "gitlab" })
+        );
+        assert_eq!(
+            super::parse_repo("gitlab:grp/proj").unwrap(),
+            json!({ "owner": "grp", "repo": "proj", "provider": "gitlab" })
+        );
+        assert!(super::parse_repo("gitlab:grp/../x").is_err());
+        assert_eq!(super::parse_repo("o/r").unwrap(), json!({ "owner": "o", "repo": "r" }));
+
+        let vault = std::env::temp_dir().join(format!("astali-gitlab-test-{}", super::new_id()));
+        std::fs::create_dir_all(vault.join("p").join(".cache")).unwrap();
+        std::fs::write(
+            vault.join("p").join("project.json"),
+            json!({ "id": "p", "name": "P", "boardOrder": [],
+                    "repos": [{ "owner": "grp/sub", "repo": "proj", "provider": "gitlab" }] })
+            .to_string(),
+        )
+        .unwrap();
+        let epic = |iid: u64, title: &str| json!({ "group": "gitlab:grp", "iid": iid, "title": title, "state": "open", "url": "u", "labels": [] });
+        std::fs::write(
+            vault.join("p").join(".cache").join("github-issues.json"),
+            json!({ "repos": { "gitlab:grp/sub/proj": {
+                "issues": [
+                    { "repo": "gitlab:grp/sub/proj", "number": 3, "title": "Login", "state": "open",
+                      "epic": { "group": "gitlab:grp", "iid": 2, "title": "Auth" } },
+                    { "repo": "gitlab:grp/sub/proj", "number": 4, "title": "Logout", "state": "closed",
+                      "epic": { "group": "gitlab:grp", "iid": 2, "title": "Auth" } },
+                ],
+                "epics": [epic(1, "Onboarding"), epic(2, "Auth")] } } })
+            .to_string(),
+        )
+        .unwrap();
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args);
+        call("create_board", json!({ "project": "P", "name": "Work" })).unwrap();
+        call(
+            "add_issue_as_task",
+            json!({ "project": "P", "board": "Work", "issue": "https://gitlab.com/grp/sub/proj/-/issues/3" }),
+        )
+        .unwrap();
+        call(
+            "create_task",
+            json!({ "project": "P", "board": "Work", "title": "Docs", "epic": "onboarding" }),
+        )
+        .unwrap();
+        assert!(call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "Docs", "epic": "Nope" })
+        )
+        .is_err());
+        let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
+        let tasks = &board["columns"][0]["tasks"];
+        assert_eq!(tasks[0]["issue"], json!({ "repo": "gitlab:grp/sub/proj", "number": 3 }));
+        assert_eq!(tasks[0]["epic"], "grp&2");
+        assert_eq!(tasks[1]["epic"], "grp&1");
+        let list = call("list_epics", json!({ "project": "P" })).unwrap();
+        let auth = list["epics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["ref"] == "grp&2")
+            .unwrap()
+            .clone();
+        assert_eq!(
+            (auth["openIssues"].as_u64(), auth["closedIssues"].as_u64()),
+            (Some(1), Some(1))
+        );
+        assert_eq!(auth["tasks"][0]["title"], "Login");
+        call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "Docs", "epic": "" }),
+        )
+        .unwrap();
+        let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
+        assert!(board["columns"][0]["tasks"][1].get("epic").is_none());
+        std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
+    fn tasks_take_a_background_color() {
+        let vault = std::env::temp_dir().join(format!("astali-task-color-test-{}", super::new_id()));
+        std::fs::create_dir_all(vault.join("p")).unwrap();
+        std::fs::write(
+            vault.join("p").join("project.json"),
+            json!({ "id": "p", "name": "P", "boardOrder": [] }).to_string(),
+        )
+        .unwrap();
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args);
+        call("create_board", json!({ "project": "P", "name": "Work" })).unwrap();
+        call(
+            "create_task",
+            json!({ "project": "P", "board": "Work", "title": "A", "color": "rose" }),
+        )
+        .unwrap();
+        call("create_task", json!({ "project": "P", "board": "Work", "title": "B" })).unwrap();
+        call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "B", "color": "#0aF" }),
+        )
+        .unwrap();
+        assert!(call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "B", "color": "purple" })
+        )
+        .is_err());
+        let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
+        let tasks = &board["columns"][0]["tasks"];
+        assert_eq!(tasks[0]["color"], "rose");
+        assert_eq!(tasks[1]["color"], "#00aaff");
+        call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "A", "color": "" }),
+        )
+        .unwrap();
+        let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
+        assert!(board["columns"][0]["tasks"][0].get("color").is_none());
         std::fs::remove_dir_all(&vault).ok();
     }
 

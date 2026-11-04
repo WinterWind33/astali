@@ -15,11 +15,14 @@ import {
   scheduleWrite,
   setWriteErrorHandler,
   setWriteListener,
+  writeMark,
   writeNow,
+  writtenSince,
 } from "./fs";
 import {
   GitHubError,
   fetchBranchPr,
+  fetchIssueComments,
   fetchRepoIssues,
   fetchRepoLabels,
   fetchRepoMilestones,
@@ -44,6 +47,8 @@ import type {
   DecisionEntry,
   GhIssue,
   GhLabel,
+  GlEpic,
+  IssueComment,
   GitBranches,
   GitIgnoreMode,
   GitStatus,
@@ -59,12 +64,13 @@ import type {
   ProjectView,
   Note,
   Plan,
+  RepoCache,
   RepoRef,
   Route,
   Task,
   Theme,
 } from "./types";
-import { now, repoKey, slugify, uid } from "./util";
+import { isGitlab, now, repoKey, repoPath, slugify, uid } from "./util";
 import { compareVersions, releasesBetween } from "./changelog";
 import {
   boardFromTemplate,
@@ -105,6 +111,7 @@ const DEFAULT_CONFIG: AppConfig = {
   lastVault: null,
   githubToken: "",
   githubTokenExpiresAt: null,
+  gitlabToken: "",
   theme: "dark",
   seasonalThemes: false,
   checkForUpdates: true,
@@ -155,6 +162,8 @@ interface State {
   gitConflicts: string[] | null;
   /** The saved GitHub token's status; null without a token or before it is checked. */
   githubAuth: GithubAuth | null;
+  /** The same for the GitLab token; null when there is none or GitLab couldn't be asked. */
+  gitlabAuth: GithubAuth | null;
   /** Recent vaults whose folder was not found at the last check (renamed, moved or deleted). */
   missingVaults: string[];
   /** Set after an update until its news are read: the version used before (null when unknown) and now. */
@@ -190,6 +199,7 @@ const initial: State = {
   gitBusy: null,
   gitConflicts: null,
   githubAuth: null,
+  gitlabAuth: null,
   missingVaults: [],
   whatsNew: null,
   historyRev: 0,
@@ -261,7 +271,7 @@ let configOnDisk: string | null = null;
 async function saveConfig(config: AppConfig) {
   set({ config });
   if (!configLoaded) return;
-  const { githubToken: _, ...rest } = config;
+  const { githubToken: _, gitlabToken: __, ...rest } = config;
   configOnDisk = JSON.stringify(keepTokenInFile() ? config : rest, null, 2);
   await invoke("save_app_config", { contents: configOnDisk });
 }
@@ -281,8 +291,8 @@ export async function reloadConfig() {
     return; // half-written, or broken by hand: the next save puts our settings back
   }
   configOnDisk = raw;
-  const { githubToken } = get().config;
-  const config = { ...DEFAULT_CONFIG, ...fresh, githubToken };
+  const { githubToken, gitlabToken } = get().config;
+  const config = { ...DEFAULT_CONFIG, ...fresh, githubToken, gitlabToken };
   if (!Array.isArray(config.favoriteColors)) config.favoriteColors = [];
   set({ config });
 }
@@ -326,6 +336,45 @@ export async function setGithubToken(githubToken: string) {
   }
   saveConfig({ ...get().config, githubToken, githubTokenExpiresAt: null });
   checkGithubToken();
+}
+
+export async function setGitlabToken(gitlabToken: string) {
+  if (!tokenInFile) {
+    try {
+      await invoke("save_gitlab_token", { token: gitlabToken });
+    } catch (e) {
+      tokenInFile = true;
+      toast(
+        `The system's credential store couldn't be reached, so the token is kept in Astali's settings file instead: ${e}`,
+        "error",
+      );
+    }
+  }
+  saveConfig({ ...get().config, gitlabToken });
+  checkGitlabToken();
+}
+
+/** Whether the saved GitLab token needs replacing (expired or rejected). */
+export function gitlabTokenProblem(s: State = get()): boolean {
+  const a = s.gitlabAuth;
+  return !!a && (a.state !== "ok" || (!!a.expiresAt && Date.parse(a.expiresAt) <= Date.now()));
+}
+
+/** Asks GitLab whether the saved token still works and the day it expires. */
+export async function checkGitlabToken() {
+  const token = get().config.gitlabToken;
+  if (!token.trim()) return set({ gitlabAuth: null });
+  try {
+    const { valid, expiresAt } = await invoke<{ valid: boolean; expiresAt: string | null }>("gitlab_token_status", {
+      token: token.trim(),
+    });
+    if (get().config.gitlabToken !== token) return;
+    // GitLab gives the last day the token works: it stops at the end of it.
+    const end = expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null;
+    set({ gitlabAuth: { state: valid ? "ok" : "invalid", expiresAt: end } });
+  } catch {
+    set({ gitlabAuth: null });
+  }
 }
 
 /** Whether the saved GitHub token needs replacing (expired or rejected), for the red dots. */
@@ -416,6 +465,11 @@ export async function init() {
     if (!Array.isArray(config.favoriteColors)) config.favoriteColors = [];
     const fileToken = config.githubToken ?? "";
     config = { ...config, githubToken: await loadGithubToken(fileToken) };
+    // Where there is no credential store, the GitLab token stays in the file like GitHub's.
+    const gitlabToken = keepTokenInFile()
+      ? (config.gitlabToken ?? "")
+      : ((await invoke<string | null>("load_gitlab_token").catch(() => null)) ?? "");
+    config = { ...config, gitlabToken };
     configLoaded = true;
     // A token moved to the credential store leaves the settings file.
     if (fileToken.trim() && !keepTokenInFile()) await saveConfig(config).catch((e) => console.error(e));
@@ -427,6 +481,7 @@ export async function init() {
   set({ config });
   checkRecentVaults();
   checkGithubToken();
+  checkGitlabToken();
   checkWhatsNew(firstRun);
   if (config.lastVault && (await pathExists(config.lastVault))) {
     await openVault(config.lastVault).catch((e) => toast(String(e), "error"));
@@ -1574,7 +1629,7 @@ export function addTask(boardId: string, columnId: string, partial: Partial<Task
 export function addIssueTasks(
   boardId: string,
   columnId: string,
-  issues: Pick<GhIssue, "repo" | "number" | "title">[],
+  issues: Pick<GhIssue, "repo" | "number" | "title" | "epic">[],
   index?: number,
 ) {
   const board = get().boards[boardId]?.board;
@@ -1592,6 +1647,8 @@ export function addIssueTasks(
       normalizeTask({
         title: i.title,
         issue: { repo: i.repo, number: i.number },
+        // A GitLab issue in an epic puts its task in it too.
+        ...(i.epic ? { epic: { group: i.epic.group, iid: i.epic.iid } } : {}),
         labels: [],
         id: uid(),
         createdAt: now(),
@@ -1968,13 +2025,74 @@ export async function deleteDecision(id: string) {
   toast(`Deleted D-${entry.decision.number} “${entry.decision.title}”`);
 }
 
-// ---------------------------------------------------------------- GitHub (read-only)
+// ---------------------------------------------------------------- GitHub and GitLab (read-only)
+
+/** What the backend fetches of a GitLab project (`gl.rs`). Its errors start with the HTTP status. */
+interface GitlabFetch {
+  issues: GhIssue[];
+  labels: GhLabel[];
+  epics: GlEpic[];
+  epicsError?: string;
+}
+
+class GitlabError extends Error {
+  readonly status?: number;
+  constructor(raw: string) {
+    const m = raw.match(/^(\d{3}) (.*)$/s);
+    super(m ? m[2] : raw);
+    this.status = m ? Number(m[1]) : undefined;
+  }
+}
+
+/**
+ * The comments of a cached issue, from GitHub or GitLab. Read-only and fetched on demand (one request
+ * per issue), so syncs stay cheap. Throws with a message fit for the user.
+ */
+export async function loadIssueComments(issue: Pick<GhIssue, "repo" | "number">): Promise<IssueComment[]> {
+  const { githubToken, gitlabToken } = get().config;
+  if (!isGitlab(issue.repo)) return fetchIssueComments(issue.repo, issue.number, githubToken);
+  try {
+    return await invoke<IssueComment[]>("gitlab_issue_comments", {
+      path: repoPath(issue.repo),
+      iid: issue.number,
+      token: gitlabToken.trim(),
+    });
+  } catch (e) {
+    const err = new GitlabError(String(e));
+    if (err.status === 401 && !gitlabToken.trim())
+      throw new Error("GitLab shows comments to signed-in users only: add a token in Settings → Connectors.");
+    throw err;
+  }
+}
+
+/** Fetches a linked repository, whichever provider it is on. */
+async function fetchRepo(r: RepoRef): Promise<Omit<RepoCache, "fetchedAt">> {
+  const { githubToken, gitlabToken } = get().config;
+  if (r.provider === "gitlab") {
+    const got = await invoke<GitlabFetch>("gitlab_fetch_project", {
+      path: repoPath(repoKey(r)),
+      token: gitlabToken.trim(),
+    }).catch((e) => {
+      throw new GitlabError(String(e));
+    });
+    if (got.epicsError) console.warn(`${repoKey(r)}: epics not read`, got.epicsError);
+    return { issues: got.issues, labels: got.labels, epics: got.epics };
+  }
+  // Records the change markers first, so a change made during the fetch is seen by the next poll.
+  await repoChanged(r, githubToken);
+  const [issues, labels, milestones] = await Promise.all([
+    fetchRepoIssues(r, githubToken),
+    fetchRepoLabels(r, githubToken),
+    fetchRepoMilestones(r, githubToken),
+  ]);
+  return { issues, labels, milestones };
+}
 
 export async function syncIssues(opts: { quiet?: boolean } = {}) {
   const p = currentProject();
   if (!p || get().syncing) return;
   if (!p.project.repos.length) {
-    if (!opts.quiet) toast("Add a GitHub repository in project settings first");
+    if (!opts.quiet) toast("Add a GitHub or GitLab repository in project settings first");
     return;
   }
   set({ syncing: true });
@@ -1986,27 +2104,25 @@ export async function syncIssues(opts: { quiet?: boolean } = {}) {
     p.project.repos.map(async (r) => {
       const key = repoKey(r);
       try {
-        // Records the change markers first, so a change made during the fetch is seen by the next poll.
-        await repoChanged(r, token);
-        const [issues, labels, milestones] = await Promise.all([
-          fetchRepoIssues(r, token),
-          fetchRepoLabels(r, token),
-          fetchRepoMilestones(r, token),
-        ]);
-        repos[key] = { fetchedAt: now(), issues, labels, milestones };
-        total += issues.length;
+        const got = await fetchRepo(r);
+        repos[key] = { fetchedAt: now(), ...got };
+        total += got.issues.length;
       } catch (e) {
         failures++;
         if (e instanceof GitHubError && e.status === 401 && token.trim()) tokenRejected();
+        if (e instanceof GitlabError && e.status === 401 && get().config.gitlabToken.trim())
+          set((s) => ({ gitlabAuth: { state: "invalid", expiresAt: s.gitlabAuth?.expiresAt ?? null } }));
         const prev = get().issues.repos[key];
         repos[key] = {
           fetchedAt: prev?.fetchedAt ?? now(),
           issues: prev?.issues ?? [],
           labels: prev?.labels,
           milestones: prev?.milestones,
+          epics: prev?.epics,
           error: (e as Error).message,
         };
-        if (!opts.quiet || !(e instanceof GitHubError && e.status === 403))
+        const rateLimited = e instanceof GitHubError && e.status === 403;
+        if (!opts.quiet || !(rateLimited || (e instanceof GitlabError && e.status === 429)))
           toast(`${key}: ${(e as Error).message}`, "error");
       }
     }),
@@ -2039,7 +2155,10 @@ export async function pollIssues() {
   if (Date.now() - lastPoll < (s.config.githubToken.trim() ? POLL_MS : POLL_MS_ANONYMOUS)) return;
   lastPoll = Date.now();
   const token = s.config.githubToken;
-  const probes = await Promise.all(p.project.repos.map((r) => repoChanged(r, token)));
+  // GitLab has no cheap "anything changed?" request: its projects refresh when stale, below.
+  const probes = await Promise.all(
+    p.project.repos.filter((r) => r.provider !== "gitlab").map((r) => repoChanged(r, token)),
+  );
   // Offline or rate-limited: try again at the next poll rather than failing a sync (and toasting) now.
   if (probes.includes("error")) return;
   // The probes miss issues deleted outright, so a stale cache is refreshed anyway.
@@ -2119,14 +2238,36 @@ export function showOnBoard(boardId: string, taskIds: string[]) {
  * client). Reloads whatever changed, skipping echoes of our own writes and files we are
  * about to overwrite anyway.
  */
-export async function refreshFromDisk(changed: string[]) {
+/** Of the files given, the ones whose content on disk is what we last wrote: echoes of our own saves. */
+async function oursOnDisk(paths: string[]): Promise<Set<string>> {
+  const own = await Promise.all(paths.map(async (path) => isOwnWrite(path, await readText(path))));
+  return new Set(paths.filter((_, i) => own[i]));
+}
+
+let refreshing: Promise<void> = Promise.resolve();
+
+/** Takes in changes made to the vault's files outside the app; one batch at a time, in order. */
+export function refreshFromDisk(changed: string[]) {
+  refreshing = refreshing.then(() => refreshNow(changed)).catch((e) => console.error("refresh failed", e));
+  return refreshing;
+}
+
+async function refreshNow(changed: string[]) {
   const vault = get().vault;
   if (!vault) return;
+  // Whether the app's copy of a file wins over the one read from disk: the disk holds our own save,
+  // or the app saved it (or will) since this refresh began. Asked once the reads are over, so an
+  // edit made while they ran is never replaced by the older file.
+  const since = writeMark();
+  const keepMine = (path: string, ours: Set<string>) =>
+    ours.has(path) || hasPendingWrite(path) || writtenSince(path, since);
   const v = normPath(vault);
   const all = changed
     .map(normPath)
     .filter((p) => p.startsWith(v + "/") && !p.endsWith(".tmp~"))
-    .map((p) => p.slice(v.length + 1));
+    .map((p) => p.slice(v.length + 1))
+    // A vault at the root of its repository sees git's own files change all through a sync.
+    .filter((p) => p !== ".git" && !p.startsWith(".git/"));
   if (all.includes(HISTORY_FILE)) set((s) => ({ historyRev: s.historyRev + 1 }));
   if (all.some((p) => p.startsWith(".astali/templates/"))) set({ templates: await loadTemplates(vault) });
   const rel = all.filter((p) => !p.startsWith(".astali"));
@@ -2135,16 +2276,14 @@ export async function refreshFromDisk(changed: string[]) {
   // Projects: any change to a top-level folder or a project.json.
   if (rel.some((p) => !p.includes("/") || /^[^/]+\/project\.json$/.test(p))) {
     const fresh = await loadProjects(vault);
-    const current = new Map(get().projects.map((e) => [e.dir, e]));
-    const merged = await Promise.all(
-      fresh.map(async (e) => {
-        const path = projectFile(vault, e.dir);
-        const mine = current.get(e.dir);
-        if (mine && (hasPendingWrite(path) || isOwnWrite(path, await readText(path)))) return mine;
-        return e;
-      }),
-    );
+    const ours = await oursOnDisk(fresh.map((e) => projectFile(vault, e.dir)));
+    // Picked against the state as it is now: the user may have changed things while we were reading.
     const s = get();
+    const current = new Map(s.projects.map((e) => [e.dir, e]));
+    const merged = fresh.map((e) => {
+      const mine = current.get(e.dir);
+      return mine && keepMine(projectFile(vault, e.dir), ours) ? mine : e;
+    });
     const dirsChanged =
       merged
         .map((e) => e.dir)
@@ -2176,17 +2315,18 @@ export async function refreshFromDisk(changed: string[]) {
     const stale = (file: string) => everything || touched.has(file.toLowerCase());
     const listed = await listBoardFiles(vault, p.dir);
     const fresh = await readBoards(vault, p.dir, listed.filter(stale));
+    const ours = await oursOnDisk(Object.values(fresh).map((e) => boardFile(vault, p.dir, e.file)));
     // Archived boards are merged with the others, then split again: an archive, a restore or an undo
-    // of either made outside the app moves a board from one side to the other.
+    // of either made outside the app moves a board from one side to the other. No await from here
+    // on, so an edit made while the files were read is not thrown away.
     const current = { ...get().archivedBoards, ...get().boards };
     const merged: Record<string, BoardEntry> = {};
     for (const [id, e] of Object.entries(current)) {
       if (!stale(e.file) && listed.includes(e.file)) merged[id] = e;
     }
     for (const [id, e] of Object.entries(fresh)) {
-      const path = boardFile(vault, p.dir, e.file);
       const mine = current[id];
-      merged[id] = mine && (hasPendingWrite(path) || isOwnWrite(path, await readText(path))) ? mine : e;
+      merged[id] = mine && keepMine(boardFile(vault, p.dir, e.file), ours) ? mine : e;
     }
     // Keep boards whose file is still being created by us.
     for (const [id, e] of Object.entries(current)) {
@@ -2196,7 +2336,7 @@ export async function refreshFromDisk(changed: string[]) {
     set(split);
     // Boards created (or restored) on disk by someone else are appended to the sidebar order, and
     // boards archived there leave it (an undo can change a board file without its project.json).
-    const order = p.project.boardOrder;
+    const order = currentProject()?.project.boardOrder ?? p.project.boardOrder;
     const outOfOrder = (id: string) =>
       !!split.archivedBoards[id] || (!!split.boards[id] && isGlossary(split.boards[id].board));
     const missing = Object.keys(split.boards).filter((id) => !order.includes(id) && !outOfOrder(id));
@@ -2214,12 +2354,12 @@ export async function refreshFromDisk(changed: string[]) {
 
   if (rel.some((r) => r.startsWith(prefix + "decisions"))) {
     const fresh = await loadDecisions(vault, p.dir);
+    const ours = await oursOnDisk(Object.values(fresh).map((e) => decisionFile(vault, p.dir, e.file)));
     const current = get().decisions;
     const merged: Record<string, DecisionEntry> = {};
     for (const [id, e] of Object.entries(fresh)) {
-      const path = decisionFile(vault, p.dir, e.file);
       const mine = current[id];
-      merged[id] = mine && (hasPendingWrite(path) || isOwnWrite(path, await readText(path))) ? mine : e;
+      merged[id] = mine && keepMine(decisionFile(vault, p.dir, e.file), ours) ? mine : e;
     }
     set({ decisions: merged });
   }

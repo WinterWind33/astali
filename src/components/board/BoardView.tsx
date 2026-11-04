@@ -486,7 +486,7 @@ export function BoardView({ boardId, archivedTask }: { boardId: string; archived
               {!!repos?.length && (
                 <button
                   className="add-column secondary"
-                  title="A column that always shows the GitHub issues carrying a label"
+                  title="A column that always shows the GitHub or GitLab issues carrying a label"
                   onClick={(e) => setLabelPicker(e.currentTarget.getBoundingClientRect())}
                 >
                   <Tag size={14} /> Add label column

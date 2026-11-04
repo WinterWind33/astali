@@ -10,10 +10,17 @@ import { COLOR_KEYS, colorHex, cx, isPreset } from "../lib/util";
  * HEX / RGB / HSV inputs). `picked` is true for a deliberate swatch click and false while a
  * custom color is being dialed in, so callers can close a popover only on the former.
  */
-export function ColorPicker({ value, onChange }: { value: Color; onChange: (c: Color, picked: boolean) => void }) {
+export function ColorPicker({
+  value,
+  onChange,
+}: {
+  /** null when nothing is picked yet: no swatch is marked. */
+  value: Color | null;
+  onChange: (c: Color, picked: boolean) => void;
+}) {
   const favorites = useStore((s) => s.config.favoriteColors);
-  const custom = !isPreset(value);
-  const hex = colorHex(value);
+  const custom = value !== null && !isPreset(value);
+  const hex = colorHex(value ?? undefined);
   const [editing, setEditing] = useState(false);
 
   return (

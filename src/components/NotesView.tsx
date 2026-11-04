@@ -664,7 +664,7 @@ function NoteEditor({
         </div>
 
         <div className="field">
-          <span className="note-dialog-label">GitHub issues</span>
+          <span className="note-dialog-label">Issues</span>
           <div className="note-dialog-issues">
             {draft.issues.map((i) => (
               <IssueChip
@@ -679,7 +679,9 @@ function NoteEditor({
               </button>
             ) : (
               !draft.issues.length && (
-                <span className="faint small">Add a GitHub repository to the project to link its issues.</span>
+                <span className="faint small">
+                  Add a GitHub repository or GitLab project to the project to link its issues.
+                </span>
               )
             )}
           </div>

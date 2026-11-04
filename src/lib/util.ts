@@ -51,17 +51,58 @@ export const colorHex = (c: Color | undefined): string => (isPreset(c) ? COLORS[
 export const normalizeColor = (c: unknown, fallback: ColorKey): Color =>
   typeof c === "string" && isPreset(c) ? c : (normalizeHex(c as string) ?? fallback);
 
-export const repoKey = (r: RepoRef) => `${r.owner}/${r.repo}`;
+export const GITLAB_PREFIX = "gitlab:";
+
+/** The cache key of a repository: "owner/repo" on GitHub, "gitlab:group/sub/project" on GitLab. */
+export const repoKey = (r: RepoRef) => `${r.provider === "gitlab" ? GITLAB_PREFIX : ""}${r.owner}/${r.repo}`;
 export const issueKey = (r: IssueRef) => `${r.repo}#${r.number}`;
 
-/** Accepts "owner/repo", "github.com/owner/repo", full URLs, and ".git" suffixes. */
+/** Whether a cache key (of a repository or an epic's group) is GitLab's. */
+export const isGitlab = (key: string) => key.startsWith(GITLAB_PREFIX);
+
+/** A repository key without the provider: "owner/repo" or "group/sub/project". */
+export const repoPath = (key: string) => (isGitlab(key) ? key.slice(GITLAB_PREFIX.length) : key);
+
+/** The short name of a repository, for chips: its last path segment. */
+export const repoName = (key: string) => repoPath(key).split("/").pop() ?? key;
+
+/** The provider's name, for "Open on …" buttons and messages. */
+export const providerName = (key: string) => (isGitlab(key) ? "GitLab" : "GitHub");
+
+/** The web page of a repository. */
+export const repoUrl = (key: string) =>
+  isGitlab(key) ? `https://gitlab.com/${repoPath(key)}` : `https://github.com/${key}`;
+
+/** The web page of an issue, for when the cache doesn't have it. */
+export const issueUrl = (r: IssueRef) => `${repoUrl(r.repo)}/${isGitlab(r.repo) ? "-/issues" : "issues"}/${r.number}`;
+
+/** The web page listing a repository's issues with a label. */
+export const labelUrl = (repo: string, name: string) =>
+  isGitlab(repo)
+    ? `${repoUrl(repo)}/-/issues?label_name[]=${encodeURIComponent(name)}`
+    : `${repoUrl(repo)}/labels/${encodeURIComponent(name)}`;
+
+const NAME = /^[\w.-]+$/;
+const validPath = (segments: string[]) => segments.every((s) => NAME.test(s) && s !== "." && s !== "..");
+
+/**
+ * Accepts GitHub's "owner/repo", "github.com/owner/repo" and full URLs, and GitLab's "gitlab:group/sub/project"
+ * and gitlab.com URLs (groups may nest), with or without a ".git" suffix.
+ */
 export function parseRepo(input: string): RepoRef | null {
   const s = input
     .trim()
     .replace(/\.git$/, "")
     .replace(/\/+$/, "");
+  const lab = s.match(/^gitlab:(.+)$/i) ?? s.match(/gitlab\.com[/:](.+)$/i);
+  if (lab) {
+    // A URL into the project ("…/-/issues") still names the project.
+    const segments = lab[1].split("/-/")[0].split("/").filter(Boolean);
+    if (segments.length < 2 || !validPath(segments)) return null;
+    return { owner: segments.slice(0, -1).join("/"), repo: segments[segments.length - 1], provider: "gitlab" };
+  }
   const m = s.match(/github\.com[/:]([\w.-]+)\/([\w.-]+)/i) ?? s.match(/^([\w.-]+)\/([\w.-]+)$/);
-  return m ? { owner: m[1], repo: m[2] } : null;
+  return m && validPath([m[1], m[2]]) ? { owner: m[1], repo: m[2] } : null;
 }
 
 export function relativeTime(iso: string | null | undefined): string {

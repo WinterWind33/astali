@@ -27,6 +27,7 @@ import {
   closeVault,
   currentProject,
   githubTokenProblem,
+  gitlabTokenProblem,
   goHome,
   openRecentVault,
   pickVault,
@@ -74,7 +75,7 @@ export function TitleBar({
   const route = useStore((s) => s.route);
   const project = useStore((s) => currentProject(s));
   const boards = useStore((s) => s.boards);
-  const tokenProblem = useStore(githubTokenProblem);
+  const tokenProblem = useStore((s) => githubTokenProblem(s) || gitlabTokenProblem(s));
   const theme = useStore((s) => s.config.theme);
   const recentVaults = useStore((s) => s.config.recentVaults);
   const vaultNames = useStore((s) => s.config.vaultNames);
@@ -93,7 +94,7 @@ export function TitleBar({
   const vaultName = vault && nameOf(vault, vaultNames);
   const view = route.name === "project" ? route.view : null;
   const boardName =
-    view?.kind === "board" ? boards[view.boardId]?.board.name : view?.kind === "issues" ? "GitHub issues" : null;
+    view?.kind === "board" ? boards[view.boardId]?.board.name : view?.kind === "issues" ? "Issues" : null;
   const themeInfo = THEME_CYCLE[theme] ?? THEME_CYCLE.dark;
 
   const vaultItems: (MenuItem | "divider")[] = [
@@ -194,7 +195,7 @@ This folder can't be found. It may have been renamed, moved or deleted.`
         <button
           className="titlebar-tool"
           onClick={onOpenSettings}
-          title={tokenProblem ? "Settings — your GitHub token needs replacing" : "Settings"}
+          title={tokenProblem ? "Settings — a GitHub or GitLab token needs replacing" : "Settings"}
         >
           <Settings size={15} />
           {tokenProblem && <span className="alert-dot" />}

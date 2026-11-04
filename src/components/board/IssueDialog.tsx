@@ -4,6 +4,7 @@ import { isViewColumn } from "../../lib/labelColumns";
 import { addIssueTasks, toast, useStore } from "../../lib/store";
 import type { IssueRef } from "../../lib/types";
 import { IssuePanel, Modal, ModalHeader } from "../ui";
+import { providerName } from "../../lib/util";
 
 /**
  * Details of an issue shown by a label column. The issue itself is read-only here; it can be added
@@ -41,8 +42,8 @@ export function IssueDialog({
   return (
     <Modal onClose={onClose} width={720}>
       <ModalHeader
-        title="GitHub issue"
-        subtitle="Shown because it carries the column's label. Edit it on GitHub."
+        title={`${providerName(issue.repo)} issue`}
+        subtitle={`Shown because it carries the column's label. Edit it on ${providerName(issue.repo)}.`}
         onClose={onClose}
       />
       <div className="form">

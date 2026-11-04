@@ -3,10 +3,20 @@ import { useState } from "react";
 import { DECISION_LIMIT_DEFAULT, DECISION_LIMIT_MAX, DECISION_LIMIT_MIN } from "../lib/decisions";
 import { GLOSSARY_LIMIT_DEFAULT, GLOSSARY_LIMIT_MAX, GLOSSARY_LIMIT_MIN } from "../lib/glossary";
 import { createProject, openProject, toast, updateProject } from "../lib/store";
-import type { Color, Project, RepoRef } from "../lib/types";
-import { parseRepo, repoKey } from "../lib/util";
+import type { Color, Project, Provider, RepoRef } from "../lib/types";
+import { cx, parseRepo, repoKey, repoPath } from "../lib/util";
 import { ColorPicker } from "./ColorPicker";
-import { Modal, ModalHeader, Github } from "./ui";
+import { Modal, ModalHeader, ProviderMark } from "./ui";
+
+/**
+ * The repository typed in the field. A URL says where it is; a bare path ("group/project") is
+ * read as the provider picked next to the field, since it could be either.
+ */
+function readRepo(input: string, provider: Provider): RepoRef | null {
+  const s = input.trim();
+  if (provider === "gitlab" && !/github\.com|^gitlab:|gitlab\.com/i.test(s)) return parseRepo(`gitlab:${s}`);
+  return parseRepo(s);
+}
 
 export function ProjectDialog({ project, onClose }: { project?: Project; onClose: () => void }) {
   const [name, setName] = useState(project?.name ?? "");
@@ -15,6 +25,7 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
   const [repos, setRepos] = useState<RepoRef[]>(project?.repos ?? []);
   const [repoInput, setRepoInput] = useState("");
   const [repoError, setRepoError] = useState("");
+  const [provider, setProvider] = useState<Provider>("github");
   const [limitInput, setLimitInput] = useState(String(project?.decisionCharLimit ?? DECISION_LIMIT_DEFAULT));
   const limit = /^\d+$/.test(limitInput.trim()) ? Number(limitInput.trim()) : NaN;
   const limitValid = Number.isInteger(limit) && limit >= DECISION_LIMIT_MIN && limit <= DECISION_LIMIT_MAX;
@@ -26,8 +37,13 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
 
   const addRepo = () => {
     if (!repoInput.trim()) return;
-    const r = parseRepo(repoInput);
-    if (!r) return setRepoError("Use owner/repo or a GitHub URL");
+    const r = readRepo(repoInput, provider);
+    if (!r)
+      return setRepoError(
+        provider === "gitlab"
+          ? "Use group/project (groups may nest) or a gitlab.com URL"
+          : "Use owner/repo or a GitHub URL",
+      );
     if (repos.some((x) => repoKey(x).toLowerCase() === repoKey(r).toLowerCase())) return setRepoError("Already added");
     setRepos([...repos, r]);
     setRepoInput("");
@@ -39,7 +55,7 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
     if (!name.trim() || !limitValid || !glossaryValid || busy) return;
     // A repo typed but not "added" is almost certainly meant to be included.
     let finalRepos = repos;
-    const pendingRepo = parseRepo(repoInput);
+    const pendingRepo = readRepo(repoInput, provider);
     if (pendingRepo && !repos.some((x) => repoKey(x) === repoKey(pendingRepo))) finalRepos = [...repos, pendingRepo];
     setBusy(true);
     try {
@@ -88,14 +104,14 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
         </div>
         <div className="field">
           <span>
-            GitHub repositories <em className="faint">— issues are imported read-only</em>
+            Repositories <em className="faint">— GitHub or gitlab.com; issues are imported read-only</em>
           </span>
           {repos.length > 0 && (
             <div className="repo-list">
               {repos.map((r) => (
                 <div key={repoKey(r)} className="repo-chip">
-                  <Github size={14} />
-                  <span>{repoKey(r)}</span>
+                  <ProviderMark repo={repoKey(r)} size={14} />
+                  <span>{repoPath(repoKey(r))}</span>
                   <button
                     type="button"
                     className="icon-btn small"
@@ -108,6 +124,21 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
             </div>
           )}
           <div className="input-row">
+            <div className="segmented tiny" role="radiogroup" aria-label="Where the repository is">
+              {(["github", "gitlab"] as Provider[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={cx(provider === p && "active")}
+                  onClick={() => {
+                    setProvider(p);
+                    setRepoError("");
+                  }}
+                >
+                  {p === "github" ? "GitHub" : "GitLab"}
+                </button>
+              ))}
+            </div>
             <input
               value={repoInput}
               onChange={(e) => {
@@ -120,7 +151,11 @@ export function ProjectDialog({ project, onClose }: { project?: Project; onClose
                   addRepo();
                 }
               }}
-              placeholder="owner/repo or https://github.com/owner/repo"
+              placeholder={
+                provider === "gitlab"
+                  ? "group/project or https://gitlab.com/group/project"
+                  : "owner/repo or https://github.com/owner/repo"
+              }
             />
             <button type="button" className="btn" onClick={addRepo}>
               <Plus size={15} /> Add

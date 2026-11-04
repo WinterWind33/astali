@@ -12,7 +12,7 @@ validates input and keeps files consistent. Editing the JSON directly also works
 - `<project-folder>/project.json` — one folder per project (any folder name; not starting with ".")
 - `<project-folder>/boards/*.json` — one file per board
 - `<project-folder>/decisions/*.json` — one file per decision (why the code is the way it is)
-- `<project-folder>/.cache/github-issues.json` — read-only cache of GitHub issues (regenerated on sync)
+- `<project-folder>/.cache/github-issues.json` — read-only cache of GitHub and GitLab issues (regenerated on sync)
 - `.astali/vault.json` — marks the folder as a vault; its optional `name` is the vault's name in the app (else the folder's).
 - `.astali/templates/*.json` — kanban board templates: `{ id, name, board: { columns, tasks, doneColumn, … } }`;
   `create_board` with `template` starts a board from one.
@@ -20,7 +20,7 @@ validates input and keeps files consistent. Editing the JSON directly also works
   directly to the JSON files are not recorded there, so they can't be undone from the app
 
 ## project.json
-`{ schemaVersion: 1, id, name, description, color, repos: [{owner, repo}], tagColors: { [tag lowercase]: color }, decisionCharLimit: number, glossaryCharLimit: number, boardOrder: [boardId...] (the sidebar's boards: not the glossary or archived boards), createdAt, updatedAt }`
+`{ schemaVersion: 1, id, name, description, color, repos: [{owner, repo, provider?: "gitlab"}] (no provider: GitHub; a GitLab owner is the group path, e.g. "group/sub"), tagColors: { [tag lowercase]: color }, decisionCharLimit: number, glossaryCharLimit: number, boardOrder: [boardId...] (the sidebar's boards: not the glossary or archived boards), createdAt, updatedAt }`
 
 `tagColors` holds the colors picked for task tags (`Task.labels`); tags not listed get a color derived from their name.
 `decisionCharLimit` (a whole number from 50 to 5000, default 500) caps a decision's `why` + `rejected`, in characters.
@@ -79,7 +79,8 @@ one; the app shows it as its own sidebar entry, not as a board, and makes the fi
 - TagSource: `{ kind: "tags", tags: [string], match: "any"|"all" }`. The column is a live view of the board's tasks
   carrying any (or all) of the tags, case-insensitively; the tasks stay in their own columns. `taskIds` stays empty.
 - Task: `{ id, title, description (markdown), priority: "none"|"low"|"medium"|"high"|"urgent", labels: [string] (the task's tags),
-  dueDate: "YYYY-MM-DD"|null, issue: {repo: "owner/name", number}|null, checklist: [{id, text, done}],
+  dueDate: "YYYY-MM-DD"|null, issue: {repo: "owner/name" or "gitlab:group/sub/project", number}|null,
+  epic?: {group: "gitlab:group/sub", iid} (a GitLab epic), color?: Color, checklist: [{id, text, done}],
   links?: [{type: "blocks"|"relates", board: <board id>, task: <task id>}], createdAt, updatedAt }`.
   A link is stored once, on the task it starts from ("blocked by" is the other task's "blocks"); a pair of tasks has
   at most one link, and `links` is left out when empty.

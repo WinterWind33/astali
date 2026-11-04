@@ -1,10 +1,11 @@
-//! The GitHub token, kept in the OS credential store (Windows Credential Manager, macOS Keychain,
+//! The GitHub and GitLab tokens, kept in the OS credential store (Windows Credential Manager, macOS Keychain,
 //! the Secret Service on Linux) rather than in `config.json`. The app and the MCP server read the
 //! same entry.
 
 use crate::vaultfs::APP_IDENTIFIER;
 
 const GITHUB_TOKEN: &str = "github-token";
+const GITLAB_TOKEN: &str = "gitlab-token";
 
 fn entry(name: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(APP_IDENTIFIER, name).map_err(|e| e.to_string())
@@ -18,6 +19,16 @@ pub fn github_token() -> Result<Option<String>, String> {
 /// Saves the token, or removes it when `token` is blank.
 pub fn set_github_token(token: &str) -> Result<(), String> {
     write(GITHUB_TOKEN, token)
+}
+
+/// The saved GitLab token, like [`github_token`].
+pub fn gitlab_token() -> Result<Option<String>, String> {
+    read(GITLAB_TOKEN)
+}
+
+/// Saves the GitLab token, or removes it when `token` is blank.
+pub fn set_gitlab_token(token: &str) -> Result<(), String> {
+    write(GITLAB_TOKEN, token)
 }
 
 fn read(name: &str) -> Result<Option<String>, String> {

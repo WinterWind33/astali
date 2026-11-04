@@ -2,6 +2,7 @@ mod gh;
 mod gitignore;
 mod gitops;
 mod gitrepo;
+mod gl;
 mod glossary;
 mod guard;
 mod history;
@@ -198,6 +199,36 @@ fn load_github_token() -> CmdResult<Option<String>> {
 #[tauri::command]
 fn save_github_token(token: String) -> CmdResult<()> {
     secrets::set_github_token(&token)
+}
+
+#[tauri::command]
+fn load_gitlab_token() -> CmdResult<Option<String>> {
+    secrets::gitlab_token()
+}
+
+/// Saves the GitLab token in the OS credential store, or removes it when blank.
+#[tauri::command]
+fn save_gitlab_token(token: String) -> CmdResult<()> {
+    secrets::set_gitlab_token(&token)
+}
+
+/// Read-only: a gitlab.com project's issues, labels and epics, in the issue cache's shape. Fetched
+/// here rather than in the webview, so the MCP server shares the code. Async: off the main thread.
+#[tauri::command]
+async fn gitlab_fetch_project(path: String, token: String) -> CmdResult<serde_json::Value> {
+    gl::fetch_project(&path, Some(&token))
+}
+
+/// Read-only: an issue's comments, fetched when the user opens them. Errors start with the HTTP status.
+#[tauri::command]
+async fn gitlab_issue_comments(path: String, iid: u64, token: String) -> CmdResult<Vec<serde_json::Value>> {
+    gl::fetch_issue_comments(&path, iid, Some(&token))
+}
+
+/// Whether GitLab accepts the token and the day it expires.
+#[tauri::command]
+async fn gitlab_token_status(token: String) -> CmdResult<serde_json::Value> {
+    gl::token_status(&token)
 }
 
 /// Absolute path of this executable, so the UI can show how to register the MCP server. An AppImage
@@ -491,6 +522,11 @@ pub fn run() {
             set_aside_app_config,
             load_github_token,
             save_github_token,
+            load_gitlab_token,
+            save_gitlab_token,
+            gitlab_fetch_project,
+            gitlab_issue_comments,
+            gitlab_token_status,
             exe_path,
             updates_supported,
             watch_vault,

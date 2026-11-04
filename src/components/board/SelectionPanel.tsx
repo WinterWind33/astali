@@ -1,10 +1,11 @@
-import { Archive, Calendar, Columns3, Flag, Tag, Trash2, X } from "lucide-react";
+import { Archive, Calendar, Columns3, Flag, Palette, Tag, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { isViewColumn } from "../../lib/labelColumns";
 import { archiveTasks, clearSelection, deleteTasks, moveTasks, toast, updateTasks, useStore } from "../../lib/store";
 import type { Priority } from "../../lib/types";
-import { cx } from "../../lib/util";
-import { TagChip, confirm } from "../ui";
+import { colorHex, cx } from "../../lib/util";
+import { ColorPicker } from "../ColorPicker";
+import { Popover, TagChip, confirm } from "../ui";
 import { PRIORITY_META, PriorityIcon } from "./TaskCard";
 
 /**
@@ -15,6 +16,7 @@ export function SelectionPanel({ boardId }: { boardId: string }) {
   const board = useStore((s) => s.boards[boardId]?.board);
   const selection = useStore((s) => s.selection);
   const [tag, setTag] = useState("");
+  const [colorAnchor, setColorAnchor] = useState<DOMRect | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,6 +38,10 @@ export function SelectionPanel({ boardId }: { boardId: string }) {
   const dues = new Set(tasks.map((t) => t.dueDate ?? ""));
   const columnOf = (id: string) => board.columns.find((c) => c.taskIds.includes(id))?.id;
   const columns = new Set(ids.map(columnOf));
+  const colors = new Set(tasks.map((t) => t.color ?? null));
+  const color = colors.size === 1 ? [...colors][0] : null;
+  const setColor = (c: string | null) =>
+    updateTasks(boardId, ids, ({ color: _, ...t }) => (c ? { ...t, color: c } : t));
 
   const addTag = () => {
     const t = tag.trim();
@@ -128,6 +134,28 @@ export function SelectionPanel({ boardId }: { boardId: string }) {
 
       <div className="prop">
         <div className="prop-label">
+          <Palette size={14} /> Color
+        </div>
+        <div className="selection-row">
+          <button className="btn small" onClick={(e) => setColorAnchor(e.currentTarget.getBoundingClientRect())}>
+            <span
+              className={cx("task-color-dot", !color && "none")}
+              style={color ? ({ "--c": colorHex(color) } as React.CSSProperties) : undefined}
+            />
+            {colors.size > 1 ? "Mixed" : color ? "Change…" : "None"}
+          </button>
+          <button
+            className="btn ghost small"
+            onClick={() => setColor(null)}
+            title="Take the color off every selected task"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div className="prop">
+        <div className="prop-label">
           <Columns3 size={14} /> Column
         </div>
         <select
@@ -171,6 +199,19 @@ export function SelectionPanel({ boardId }: { boardId: string }) {
           <Trash2 size={14} /> Delete
         </button>
       </div>
+      {colorAnchor && (
+        <Popover anchor={colorAnchor} align="right" onClose={() => setColorAnchor(null)}>
+          <div className="popover-pad">
+            <ColorPicker
+              value={color}
+              onChange={(c, picked) => {
+                setColor(c);
+                if (picked) setColorAnchor(null);
+              }}
+            />
+          </div>
+        </Popover>
+      )}
     </aside>
   );
 }

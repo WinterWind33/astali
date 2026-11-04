@@ -6,10 +6,10 @@ import { decisionLength, decisionRef } from "../lib/decisions";
 import { createDecision, currentProject, decisionFits, toast, updateDecision, useStore } from "../lib/store";
 import { tagKey } from "../lib/tags";
 import type { Decision, GhIssue, IssueRef } from "../lib/types";
-import { cx, issueKey } from "../lib/util";
+import { cx, issueKey, issueUrl, repoName } from "../lib/util";
 import { IssuePicker } from "./board/TaskDialog";
 import { TagInput } from "./TagInput";
-import { Github, IssueStateIcon, Modal, ModalHeader, Popover } from "./ui";
+import { IssueStateIcon, Modal, ModalHeader, Popover, ProviderMark } from "./ui";
 
 /** Adds `text` to `list` unless it is empty or already there (`key` decides what "already there" means). */
 function addTo(list: string[], text: string, key: (s: string) => string = (s) => s) {
@@ -196,7 +196,7 @@ export function DecisionDialog({
 
           {project.repos.length > 0 && (
             <div className="field">
-              <span>GitHub issues</span>
+              <span>Issues</span>
               <div className="decision-issues">
                 {issues.map((i) => (
                   <IssueChip key={issueKey(i)} issue={i} onRemove={() => setIssues(issues.filter((x) => x !== i))} />
@@ -251,17 +251,14 @@ export function DecisionDialog({
   );
 }
 
-/** A linked GitHub issue: its state when cached, opening it on GitHub on click. */
+/** A linked issue: its state when cached, opening it on GitHub or GitLab on click. */
 export function IssueChip({ issue, onRemove }: { issue: IssueRef; onRemove?: () => void }) {
   const cached = useStore((s) => s.issues.repos[issue.repo]?.issues.find((i) => i.number === issue.number));
   return (
     <span className="issue-chip" title={cached ? `${issueKey(issue)} — ${cached.title}` : issueKey(issue)}>
-      <button
-        type="button"
-        onClick={() => openUrl(cached?.url ?? `https://github.com/${issue.repo}/issues/${issue.number}`)}
-      >
-        {cached ? <IssueStateIcon issue={cached} size={12} /> : <Github size={12} />}
-        {issue.repo.split("/")[1]}#{issue.number}
+      <button type="button" onClick={() => openUrl(cached?.url ?? issueUrl(issue))}>
+        {cached ? <IssueStateIcon issue={cached} size={12} /> : <ProviderMark repo={issue.repo} size={12} />}
+        {repoName(issue.repo)}#{issue.number}
       </button>
       {onRemove && (
         <button type="button" className="issue-chip-remove" aria-label="Unlink" onClick={onRemove}>

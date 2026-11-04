@@ -23,8 +23,10 @@ import licenseText from "../../LICENSE?raw";
 import { SEASON_LABEL } from "../lib/season";
 import {
   checkGithubToken,
+  checkGitlabToken,
   closeVault,
   githubTokenProblem,
+  gitlabTokenProblem,
   pickVault,
   refreshGit,
   renameVault,
@@ -78,7 +80,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const season = useSeason();
   const vault = useStore((s) => s.vault);
   const git = useStore((s) => s.git);
-  const tokenProblem = useStore(githubTokenProblem);
+  const tokenProblem = useStore((s) => githubTokenProblem(s) || gitlabTokenProblem(s));
   const update = useUpdate((s) => s.available);
   const [active, setActive] = useState<SettingsTab>("general");
   const [exe, setExe] = useState("astali.exe");
@@ -94,6 +96,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       .catch(() => {});
     refreshGit(); // pick up a repo created or a .gitignore edited since the vault was opened
     checkGithubToken(); // or a token that expired or was revoked since
+    checkGitlabToken();
   }, []);
 
   // The Git tab only exists while the vault is inside a repository.

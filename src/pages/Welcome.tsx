@@ -35,7 +35,7 @@ export function Welcome() {
           </div>
           <div>
             <Github size={16} />
-            <span>Read-only GitHub issue import</span>
+            <span>Read-only GitHub and GitLab issue import</span>
           </div>
           <div>
             <Sparkles size={16} />

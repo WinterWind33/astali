@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { BranchPr, GhIssue, GhLabel, GhMilestone, RepoRef } from "./types";
+import type { BranchPr, GhIssue, GhLabel, GhMilestone, IssueComment, RepoRef } from "./types";
 import { repoKey } from "./util";
 
 const API = "https://api.github.com";
@@ -112,6 +112,20 @@ export async function fetchRepoMilestones(ref: RepoRef, token: string): Promise<
     openIssues: m.open_issues ?? 0,
     closedIssues: m.closed_issues ?? 0,
     url: m.html_url,
+  }));
+}
+
+/** Read-only: the comments of an issue (or pull request), oldest first. */
+export async function fetchIssueComments(repo: string, number: number, token: string): Promise<IssueComment[]> {
+  const raw = await fetchAllPages(repo, `${API}/repos/${repo}/issues/${number}/comments`, token);
+  return raw.map((c) => ({
+    id: c.id,
+    author: c.user?.login ?? "ghost",
+    authorAvatar: c.user?.avatar_url ?? "",
+    body: c.body ?? "",
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+    url: c.html_url,
   }));
 }
 

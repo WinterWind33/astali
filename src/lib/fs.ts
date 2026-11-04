@@ -51,6 +51,18 @@ export function isOwnWrite(path: string, content: string | null): boolean {
 
 const pending = new Map<string, { timer: number; data: unknown }>();
 const chains = new Map<string, Promise<void>>();
+/** Writes handed to the backend but not done yet, per path: the file on disk is still the old one. */
+const inFlight = new Map<string, number>();
+/** When each path was last saved (or scheduled to be), on a counter that only goes up. */
+const marks = new Map<string, number>();
+let mark = 0;
+const touch = (path: string) => marks.set(path, ++mark);
+
+/** A point in the app's saves, to ask `writtenSince` about later. */
+export const writeMark = () => mark;
+
+/** Whether the app saved `path`, or scheduled a save, after `since` (from `writeMark`). */
+export const writtenSince = (path: string, since: number) => (marks.get(path) ?? 0) > since;
 let onError: (path: string, e: unknown) => void = (p, e) => console.error("write failed", p, e);
 let onWrite: (path: string) => void = () => {};
 
@@ -66,16 +78,24 @@ export function setWriteListener(fn: typeof onWrite) {
 function enqueue(path: string, data: unknown): Promise<void> {
   const text = toJson(data);
   lastWritten.set(normPath(path), text);
+  touch(path);
+  inFlight.set(path, (inFlight.get(path) ?? 0) + 1);
   const prev = chains.get(path) ?? Promise.resolve();
   const next = prev
     .then(() => writeText(path, text))
     .then(() => onWrite(path))
-    .catch((e) => onError(path, e));
+    .catch((e) => onError(path, e))
+    .finally(() => {
+      const n = (inFlight.get(path) ?? 1) - 1;
+      if (n > 0) inFlight.set(path, n);
+      else inFlight.delete(path);
+    });
   chains.set(path, next);
   return next;
 }
 
 export function scheduleWrite(path: string, data: unknown, delay = 250) {
+  touch(path);
   const existing = pending.get(path);
   if (existing) clearTimeout(existing.timer);
   const timer = window.setTimeout(() => {
@@ -85,8 +105,9 @@ export function scheduleWrite(path: string, data: unknown, delay = 250) {
   pending.set(path, { timer, data });
 }
 
+/** Whether a write to `path` is waiting or under way, so what is on disk is not our latest yet. */
 export function hasPendingWrite(path: string) {
-  return pending.has(path);
+  return pending.has(path) || inFlight.has(path);
 }
 
 export async function writeNow(path: string, data: unknown) {

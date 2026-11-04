@@ -5,9 +5,14 @@ export type ColorKey = "slate" | "violet" | "blue" | "cyan" | "emerald" | "lime"
 /** A preset key, or any custom color as "#rrggbb". */
 export type Color = ColorKey | (string & {});
 
+/** Where a linked repository lives; absent means GitHub (every vault from before GitLab support). */
+export type Provider = "github" | "gitlab";
+
 export interface RepoRef {
+  /** GitHub's owner, or a GitLab project's group path ("group/sub"). */
   owner: string;
   repo: string;
+  provider?: Provider;
 }
 
 export interface Project {
@@ -88,7 +93,10 @@ export type ColumnSource = LabelSource | TagSource;
 
 export type Priority = "none" | "low" | "medium" | "high" | "urgent";
 
-/** Pointer to a GitHub issue, as "owner/repo" + number. */
+/**
+ * Pointer to an issue: its repository's cache key ("owner/repo" on GitHub, "gitlab:group/sub/project"
+ * on GitLab, see `repoKey`) and its number (GitLab's per-project iid).
+ */
 export interface IssueRef {
   repo: string;
   number: number;
@@ -96,6 +104,12 @@ export interface IssueRef {
 
 /** A GitHub milestone a task is linked to: its repository and number. */
 export type MilestoneRef = IssueRef;
+
+/** A GitLab epic a task is linked to: its group ("gitlab:group/sub") and its iid in that group. */
+export interface EpicRef {
+  group: string;
+  iid: number;
+}
 
 export interface ChecklistItem {
   id: string;
@@ -121,6 +135,10 @@ export interface Task {
   issue: IssueRef | null;
   /** The GitHub milestone the task belongs to; absent (or null) when none. */
   milestone?: MilestoneRef | null;
+  /** The GitLab epic the task belongs to; absent (or null) when none. */
+  epic?: EpicRef | null;
+  /** The card's background color; absent (or null) for the plain card. */
+  color?: Color | null;
   checklist: ChecklistItem[];
   /** Links to other tasks of the project, stored on the task they start from. Absent when there are none. */
   links?: TaskLink[];
@@ -307,9 +325,38 @@ export interface GhIssue {
   assignees: string[];
   comments: number;
   milestone: string | null;
+  /** GitLab only, and only in groups that have epics: the epic the issue is in. */
+  epic?: EpicRef & { title: string };
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+}
+
+/** A comment on a GitHub or GitLab issue: fetched when opened, never cached. */
+export interface IssueComment {
+  id: number;
+  author: string;
+  authorAvatar: string;
+  /** Markdown. */
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  /** The comment itself on the issue's page. */
+  url: string;
+}
+
+/** A GitLab epic (Premium and Ultimate groups only). */
+export interface GlEpic {
+  /** "gitlab:group/sub". */
+  group: string;
+  iid: number;
+  title: string;
+  description: string;
+  state: "open" | "closed";
+  url: string;
+  labels: string[];
+  startDate: string | null;
+  dueDate: string | null;
 }
 
 export interface GhMilestone {
@@ -331,6 +378,8 @@ export interface RepoCache {
   labels?: GhLabel[];
   /** Every milestone of the repository, open and closed; missing in caches written before 1.10.0. */
   milestones?: GhMilestone[];
+  /** GitLab only: the epics of the project's group and the groups above it; empty when they have none. */
+  epics?: GlEpic[];
   error?: string;
 }
 
@@ -374,6 +423,8 @@ export interface AppConfig {
   githubToken: string;
   /** When the token expires, as GitHub last reported it; null when it never does or isn't known yet. */
   githubTokenExpiresAt: string | null;
+  /** Kept in the credential store like the GitHub token; in this file only where there is none. */
+  gitlabToken: string;
   theme: Theme;
   /** Holiday themes (Halloween, Christmas, Easter) on top of the theme while their dates last. */
   seasonalThemes: boolean;

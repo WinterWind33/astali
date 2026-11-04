@@ -1,6 +1,6 @@
 import type { Board, Column, ColumnSource, GhIssue, GhLabel, IssueCache, LabelSource, Task } from "./types";
 import { normalizeTagSource } from "./tags";
-import { colorHex } from "./util";
+import { colorHex, labelUrl as labelPage } from "./util";
 
 /*
  * Label columns: a column bound to a GitHub label shows, live, the cached issues carrying it. The
@@ -101,8 +101,8 @@ export function followLabels(
   return columns.some((c, i) => c !== board.columns[i]) ? { columns, tasks, events } : null;
 }
 
-/** GitHub's page listing the issues with the label. */
-export const labelUrl = (src: LabelSource) => `https://github.com/${src.repo}/labels/${encodeURIComponent(src.name)}`;
+/** The provider's page listing the issues with the label. */
+export const labelUrl = (src: LabelSource) => labelPage(src.repo, src.name);
 
 export function normalizeSource(s: unknown): ColumnSource | null {
   const kind = (s as { kind?: unknown } | null)?.kind;

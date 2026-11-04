@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-11-03
+
+### Added
+
+- **GitLab issues**: link gitlab.com projects, then sync, browse and add their issues like GitHub's.
+- **GitLab epics**: link a task to an epic of the project's groups; tasks made from issues join their epic.
+- **Issue comments**: read a GitHub or GitLab issue's comments in Astali, and jump to any of them.
+- **Card colors**: give tasks a background color from their dialog, or several at once from the selection.
+- Save a GitLab token under Settings → Connectors to reach private projects.
+- An AI agent can do the same through the MCP server: GitLab issues and epics, and card colors.
+
+### Fixed
+
+- Changes made while git syncs are no longer undone on screen.
+
 ## [1.10.1] - 2026-10-25
 
 ### Security

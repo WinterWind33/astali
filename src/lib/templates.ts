@@ -40,7 +40,7 @@ export async function loadTemplates(vault: string): Promise<TemplateEntry[]> {
 
 /** What a task keeps in a template: its words, tags, priority and checklist (all unchecked). */
 function templateTask(t: Task): Task {
-  const { links: _, milestone: __, ...rest } = t;
+  const { links: _, milestone: __, epic: ___, ...rest } = t;
   return {
     ...rest,
     issue: null,

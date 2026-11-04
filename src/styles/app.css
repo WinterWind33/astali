@@ -1982,6 +1982,36 @@ input.board-name {
   border-color: var(--border-strong);
   background: var(--card-hover);
 }
+/* A card with its own color: tinted like a note, so text keeps reading well in every theme. */
+.task-card.tinted {
+  background: color-mix(in srgb, var(--c) var(--note-mix), var(--card));
+  border-color: color-mix(in srgb, var(--c) 35%, var(--border));
+}
+.task-card.tinted:hover {
+  background: color-mix(in srgb, var(--c) calc(var(--note-mix) + 6%), var(--card-hover));
+  border-color: color-mix(in srgb, var(--c) 55%, var(--border-strong));
+}
+.task-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.task-color-row .btn {
+  flex: 1;
+  justify-content: flex-start;
+}
+.task-color-dot {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--c);
+  border: 1px solid var(--border-strong);
+}
+.task-color-dot.none {
+  background: transparent;
+  border-style: dashed;
+}
 .drag-overlay {
   transform: rotate(2.5deg) scale(1.02);
   cursor: grabbing;
@@ -3006,6 +3036,57 @@ input.check-text {
   padding: 4px 14px 12px;
   max-height: 340px;
   overflow-y: auto;
+}
+.issue-comments {
+  border-top: 1px solid var(--border);
+}
+.issue-comments-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.issue-comments-toggle:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.issue-comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 12px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.issue-comment {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.issue-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.issue-comment-head .spacer {
+  flex: 1;
+}
+.issue-comment-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+.issue-comment-body {
+  margin-top: 4px;
+  font-size: 13px;
 }
 
 .label-picker-repo {

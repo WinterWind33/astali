@@ -2,14 +2,14 @@ import { useDraggable } from "@dnd-kit/core";
 import { Link2, MessageSquare } from "lucide-react";
 import { memo } from "react";
 import type { GhIssue } from "../../lib/types";
-import { cx, issueKey } from "../../lib/util";
+import { cx, issueKey, repoName } from "../../lib/util";
 import { GhLabelChip, IssueStateIcon } from "../ui";
 
 /** Drag id of an issue card in a label column; tasks use their own ids. */
 export const issueDragId = (i: GhIssue) => `issue:${issueKey(i)}`;
 
 /**
- * A GitHub issue shown by a label column. Read-only: its content comes from GitHub, so there is
+ * A GitHub or GitLab issue shown by a label column. Read-only: its content comes from there, so there is
  * no priority, checklist or due date, only what the issue itself has.
  */
 export const IssueCard = memo(function IssueCard({
@@ -41,7 +41,7 @@ export const IssueCard = memo(function IssueCard({
       <div className="task-meta">
         <span className={cx("task-issue", issue.state)}>
           <IssueStateIcon issue={issue} size={13} />
-          {issue.repo.split("/")[1]}#{issue.number}
+          {repoName(issue.repo)}#{issue.number}
         </span>
         {issue.comments > 0 && (
           <span title={`${issue.comments} comment(s)`}>

@@ -15,7 +15,7 @@ import {
 } from "../lib/store";
 import { isViewColumn } from "../lib/labelColumns";
 import type { GhIssue } from "../lib/types";
-import { cx, relativeTime } from "../lib/util";
+import { cx, providerName, relativeTime, repoPath } from "../lib/util";
 import { EmptyState, GhLabelChip, IssueStateIcon, Markdown, Popover } from "./ui";
 
 type StateFilter = "open" | "closed" | "all";
@@ -103,7 +103,7 @@ export function IssuesView() {
     <div className="issues-view">
       <div className="board-header">
         <div className="board-title">
-          <span className="board-name">GitHub issues</span>
+          <span className="board-name">Issues</span>
           <span className="board-desc">
             Read-only mirror of {project.project.repos.length} repo(s). Add issues to a board to track them as tasks.
           </span>
@@ -132,7 +132,7 @@ export function IssuesView() {
             <option value="all">All repositories</option>
             {repoKeys.map((k) => (
               <option key={k} value={k}>
-                {k}
+                {repoPath(k)} ({providerName(k)})
               </option>
             ))}
           </select>
@@ -203,7 +203,7 @@ export function IssuesView() {
           <EmptyState icon={<CircleDot size={28} />} title={syncing ? "Fetching issues…" : "No issues cached yet"}>
             {!syncing && (
               <button className="btn primary" onClick={() => syncIssues()}>
-                <RefreshCw size={15} /> Sync from GitHub
+                <RefreshCw size={15} /> Sync issues
               </button>
             )}
           </EmptyState>
@@ -235,7 +235,7 @@ export function IssuesView() {
                       ))}
                     </div>
                     <div className="issue-row-sub faint small">
-                      {repoKeys.length > 1 && <span>{i.repo} </span>}#{i.number} · {i.author} · updated{" "}
+                      {repoKeys.length > 1 && <span>{repoPath(i.repo)} </span>}#{i.number} · {i.author} · updated{" "}
                       {relativeTime(i.updatedAt)}
                       {i.milestone && <> · {i.milestone}</>}
                     </div>
@@ -264,7 +264,11 @@ export function IssuesView() {
                         <Plus size={13} /> Add to board <ChevronDown size={12} />
                       </button>
                     )}
-                    <button className="icon-btn small" title="Open on GitHub" onClick={() => openUrl(i.url)}>
+                    <button
+                      className="icon-btn small"
+                      title={`Open on ${providerName(i.repo)}`}
+                      onClick={() => openUrl(i.url)}
+                    >
                       <ExternalLink size={14} />
                     </button>
                   </div>

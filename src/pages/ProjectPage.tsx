@@ -441,7 +441,7 @@ export function ProjectPage() {
 
         <div className="sidebar-section">
           <div className="sidebar-label">
-            <span>GitHub</span>
+            <span>Issues</span>
             {project.repos.length > 0 && (
               <button className="icon-btn small" onClick={() => syncIssues()} title="Sync issues" disabled={syncing}>
                 <RefreshCw size={14} className={cx(syncing && "spin")} />

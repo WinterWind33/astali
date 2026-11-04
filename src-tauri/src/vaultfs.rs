@@ -139,6 +139,16 @@ pub fn github_token_from_config() -> Option<String> {
         .filter(|t| !t.trim().is_empty())
 }
 
+/// The GitLab token, looked up like [`github_token_from_config`] (`GITLAB_TOKEN` first).
+pub fn gitlab_token_from_config() -> Option<String> {
+    std::env::var("GITLAB_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+        .or_else(|| crate::secrets::gitlab_token().ok().flatten())
+        .or_else(|| app_config()?.get("gitlabToken")?.as_str().map(String::from))
+        .filter(|t| !t.trim().is_empty())
+}
+
 /// Every vault has this file; it tells a vault apart from any other folder.
 pub fn is_vault(dir: &Path) -> bool {
     dir.join(".astali").join("vault.json").is_file()

@@ -2,6 +2,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   CircleDot,
   ExternalLink,
   GitPullRequest,
@@ -23,10 +25,10 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { create } from "zustand";
-import { currentProject, setView, useStore } from "../lib/store";
+import { currentProject, loadIssueComments, setView, useStore } from "../lib/store";
 import { tagColor } from "../lib/tags";
-import type { GhIssue, GhLabel } from "../lib/types";
-import { cx, relativeTime } from "../lib/util";
+import type { GhIssue, GhLabel, IssueComment } from "../lib/types";
+import { cx, isGitlab, providerName, relativeTime, repoPath } from "../lib/util";
 
 // ---------------------------------------------------------------- Modal
 
@@ -329,7 +331,7 @@ export function Markdown({ children, className }: { children: string; className?
     <div className={cx("markdown", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        // GitHub issue bodies mix in raw HTML; render it, but sanitized (no scripts, no handlers).
+        // Issue bodies (GitHub's, GitLab's) mix in raw HTML; render it, but sanitized (no scripts, no handlers).
         rehypePlugins={[rehypeRaw, rehypeSanitize]}
         components={{
           a: ({ href, children }) => (
@@ -352,7 +354,7 @@ export function Markdown({ children, className }: { children: string; className?
   );
 }
 
-// ---------------------------------------------------------------- GitHub bits
+// ---------------------------------------------------------------- GitHub and GitLab bits
 
 export function IssueStateIcon({
   issue,
@@ -373,13 +375,13 @@ export function IssueStateIcon({
 }
 
 /**
- * A label of a GitHub repository, in GitHub's style (a bordered pill with the GitHub mark) so it
+ * A label of a GitHub or GitLab repository, as a bordered pill with the provider's mark so it
  * never passes for one of the project's own tags. With `repo`, clicking it lists everything
  * carrying the label in the Tags view.
  */
 export function GhLabelChip({ label, repo }: { label: GhLabel; repo?: string }) {
   const style = { "--c": `#${label.color}` } as React.CSSProperties;
-  const title = `GitHub label${repo ? ` of ${repo}` : ""}${label.description ? ` — ${label.description}` : ""}`;
+  const title = `${providerName(repo ?? "")} label${repo ? ` of ${repoPath(repo)}` : ""}${label.description ? ` — ${label.description}` : ""}`;
   if (!repo)
     return (
       <span className="gh-label" style={style} title={title}>
@@ -400,7 +402,7 @@ Click to see everything labeled “${label.name}”`}
         setView({ kind: "tags", tag: { kind: "label", repo, name: label.name } });
       }}
     >
-      <Github size={9} className="gh-label-mark" />
+      <ProviderMark repo={repo} size={9} className="gh-label-mark" />
       {label.name}
     </button>
   );
@@ -458,7 +460,7 @@ export function TagChip({
   );
 }
 
-/** A cached issue's header, labels and body, with a button to open it on GitHub. */
+/** A cached issue's header, labels and body, with a button to open it on GitHub or GitLab. */
 export function IssuePanel({ issue }: { issue: GhIssue }) {
   return (
     <div className="issue-panel">
@@ -469,7 +471,7 @@ export function IssuePanel({ issue }: { issue: GhIssue }) {
             {issue.title} <span className="faint">#{issue.number}</span>
           </div>
           <div className="faint small">
-            {issue.repo} · opened by {issue.author} {relativeTime(issue.createdAt)}
+            {repoPath(issue.repo)} · opened by {issue.author} {relativeTime(issue.createdAt)}
             {issue.comments > 0 && (
               <>
                 {" "}
@@ -477,6 +479,7 @@ export function IssuePanel({ issue }: { issue: GhIssue }) {
               </>
             )}
             {issue.milestone && <> · milestone {issue.milestone}</>}
+            {issue.epic && <> · epic {issue.epic.title}</>}
           </div>
         </div>
         <button className="btn small" onClick={() => openUrl(issue.url)}>
@@ -494,6 +497,76 @@ export function IssuePanel({ issue }: { issue: GhIssue }) {
         <Markdown className="issue-body">{issue.body}</Markdown>
       ) : (
         <p className="faint small">No description provided.</p>
+      )}
+      {issue.comments > 0 && <IssueComments key={`${issue.repo}#${issue.number}`} issue={issue} />}
+    </div>
+  );
+}
+
+/** Comments already fetched in this session, by issue and its last update: reopening is instant. */
+const commentCache = new Map<string, IssueComment[]>();
+
+/**
+ * An issue's comments, read-only. Folded at first: they're fetched on opening (one request), so a
+ * sync never pays for them. Each opens on GitHub or GitLab, right at the comment.
+ */
+function IssueComments({ issue }: { issue: GhIssue }) {
+  const key = `${issue.repo}#${issue.number}@${issue.updatedAt}`;
+  const [open, setOpen] = useState(false);
+  const [comments, setComments] = useState<IssueComment[] | null>(() => commentCache.get(key) ?? null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const toggle = async () => {
+    setOpen(!open);
+    if (open || comments || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      const got = await loadIssueComments(issue);
+      commentCache.set(key, got);
+      setComments(got);
+    } catch (e) {
+      setError((e as Error).message ?? String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="issue-comments">
+      <button type="button" className="issue-comments-toggle" onClick={toggle}>
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <MessageSquare size={13} /> {issue.comments} comment{issue.comments === 1 ? "" : "s"}
+      </button>
+      {open && (
+        <div className="issue-comments-list">
+          {loading && <p className="faint small">Fetching comments…</p>}
+          {error && <p className="connector-error small">{error}</p>}
+          {comments?.length === 0 && <p className="faint small">No comments to show.</p>}
+          {comments?.map((c) => (
+            <div key={c.id} className="issue-comment">
+              <div className="issue-comment-head">
+                {c.authorAvatar && <img src={c.authorAvatar} alt="" className="issue-comment-avatar" />}
+                <b>{c.author}</b>
+                <span className="faint small" title={new Date(c.createdAt).toLocaleString()}>
+                  {relativeTime(c.createdAt)}
+                  {c.updatedAt !== c.createdAt && " · edited"}
+                </span>
+                <span className="spacer" />
+                <button
+                  type="button"
+                  className="icon-btn tiny"
+                  title={`Open this comment on ${providerName(issue.repo)}`}
+                  onClick={() => openUrl(c.url)}
+                >
+                  <ExternalLink size={12} />
+                </button>
+              </div>
+              <Markdown className="issue-comment-body">{c.body}</Markdown>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -596,6 +669,20 @@ export function Logo({ size = 22 }: { size?: number }) {
       </g>
     </svg>
   );
+}
+
+/** GitLab mark, simplified to one shape so it reads at chip sizes. Sized and colored like a lucide icon. */
+export function Gitlab({ size = 16, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
+      <path d="M8 15.2 1.1 10.1a.7.7 0 0 1-.25-.78L2.7 3.6a.35.35 0 0 1 .67 0L5.1 8.9h5.8l1.73-5.3a.35.35 0 0 1 .67 0l1.85 5.72a.7.7 0 0 1-.25.78Z" />
+    </svg>
+  );
+}
+
+/** The mark of the provider a repository key ("owner/repo" or "gitlab:…") is on. */
+export function ProviderMark({ repo, size = 16, className }: { repo: string; size?: number; className?: string }) {
+  return isGitlab(repo) ? <Gitlab size={size} className={className} /> : <Github size={size} className={className} />;
 }
 
 /** GitHub mark (lucide no longer ships brand icons). Sized and colored like a lucide icon. */

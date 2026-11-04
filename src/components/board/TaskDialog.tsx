@@ -3,13 +3,16 @@ import {
   Archive,
   Calendar,
   CheckSquare,
+  CircleDot,
   Columns3,
   ExternalLink,
   Flag,
   FolderInput,
   Kanban,
+  Layers,
   Link2,
   Link2Off,
+  Palette,
   Plus,
   Search,
   Tag,
@@ -34,12 +37,13 @@ import {
 } from "../../lib/store";
 import { isViewColumn } from "../../lib/labelColumns";
 import { defaultTagColor, tagKey } from "../../lib/tags";
-import type { GhIssue, GhMilestone, Priority, Task } from "../../lib/types";
+import type { GhIssue, GhMilestone, GlEpic, Priority, Task } from "../../lib/types";
 import { findMilestone, milestoneProgress, milestoneSummary } from "../../lib/milestones";
-import { cx, MOD_KEY, relativeTime, uid } from "../../lib/util";
+import { colorHex, cx, isPreset, issueUrl, MOD_KEY, providerName, relativeTime, repoName, uid } from "../../lib/util";
+import { allEpics, epicLabel, epicSummary, findEpic } from "../../lib/epics";
 import { ColorPicker } from "../ColorPicker";
 import { TagInput } from "../TagInput";
-import { IssuePanel, IssueStateIcon, Markdown, Modal, Popover, TagChip, confirm, Github } from "../ui";
+import { IssuePanel, IssueStateIcon, Markdown, Modal, Popover, ProviderMark, TagChip, confirm, Gitlab } from "../ui";
 import { PRIORITY_META, PriorityIcon } from "./TaskCard";
 import { TaskLinks } from "./TaskLinks";
 
@@ -57,7 +61,7 @@ function AutoTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) 
 /** What the dialog edits: the task's own fields, and the column it sits in. */
 type Draft = Pick<
   Task,
-  "title" | "description" | "priority" | "labels" | "dueDate" | "issue" | "milestone" | "checklist"
+  "title" | "description" | "priority" | "labels" | "dueDate" | "issue" | "milestone" | "epic" | "color" | "checklist"
 > & {
   column: string;
 };
@@ -85,8 +89,10 @@ export function TaskDialog({
   const [checkInput, setCheckInput] = useState("");
   const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null);
   const [milestoneAnchor, setMilestoneAnchor] = useState<DOMRect | null>(null);
+  const [epicAnchor, setEpicAnchor] = useState<DOMRect | null>(null);
   const [tagMenu, setTagMenu] = useState<{ tag: string; anchor: DOMRect } | null>(null);
   const [moveAnchor, setMoveAnchor] = useState<DOMRect | null>(null);
+  const [colorAnchor, setColorAnchor] = useState<DOMRect | null>(null);
   // Only the fields edited here; the others show the task as it is on disk (e.g. edited by Claude meanwhile).
   const [edits, setEdits] = useState<Partial<Draft>>({});
   const asking = useRef(false);
@@ -100,11 +106,14 @@ export function TaskDialog({
   );
 
   const milestone = findMilestone(issues, draft?.milestone);
+  const epic = findEpic(issues, draft?.epic);
+  // Epics only exist on GitLab: the field shows once a GitLab project brought some, or the task has one.
+  const hasEpics = useMemo(() => allEpics(issues).length > 0, [issues]);
 
   if (!board || !task || !draft) return null;
   const column = board.columns.find((c) => c.id === draft.column);
   const changed = (Object.keys(edits) as (keyof Draft)[]).filter(
-    (k) => JSON.stringify(edits[k]) !== JSON.stringify(k === "column" ? savedColumn?.id : task[k]),
+    (k) => JSON.stringify(edits[k] ?? null) !== JSON.stringify((k === "column" ? savedColumn?.id : task[k]) ?? null),
   );
   const dirty = changed.length > 0 || checkInput.trim() !== "";
   const canSave = dirty && draft.title.trim() !== "";
@@ -153,6 +162,8 @@ export function TaskDialog({
   const linkIssue = (i: GhIssue) => {
     update({
       issue: { repo: i.repo, number: i.number },
+      // A GitLab issue in an epic brings the epic along, unless the task already has one.
+      ...(i.epic && !draft.epic ? { epic: { group: i.epic.group, iid: i.epic.iid } } : {}),
       ...(draft.title === "Untitled" || !draft.title ? { title: i.title } : {}),
     });
     setPickerAnchor(null);
@@ -282,7 +293,7 @@ export function TaskDialog({
               <>
                 <div className="section-head">
                   <span>
-                    <Github size={14} /> Linked issue
+                    <ProviderMark repo={draft.issue.repo} size={14} /> Linked issue
                   </span>
                 </div>
                 {linked ? (
@@ -292,11 +303,8 @@ export function TaskDialog({
                     <span>
                       {draft.issue.repo}#{draft.issue.number} is not in the local cache. Sync issues to see its details.
                     </span>
-                    <button
-                      className="btn small"
-                      onClick={() => openUrl(`https://github.com/${draft.issue!.repo}/issues/${draft.issue!.number}`)}
-                    >
-                      <ExternalLink size={13} /> Open on GitHub
+                    <button className="btn small" onClick={() => openUrl(issueUrl(draft.issue!))}>
+                      <ExternalLink size={13} /> Open on {providerName(draft.issue.repo)}
                     </button>
                   </div>
                 )}
@@ -372,13 +380,37 @@ export function TaskDialog({
 
             <div className="prop">
               <div className="prop-label">
-                <Github size={14} /> GitHub issue
+                <Palette size={14} /> Color
+              </div>
+              <div className="task-color-row">
+                <button className="btn small" onClick={(e) => setColorAnchor(e.currentTarget.getBoundingClientRect())}>
+                  <span
+                    className={cx("task-color-dot", !draft.color && "none")}
+                    style={draft.color ? ({ "--c": colorHex(draft.color) } as React.CSSProperties) : undefined}
+                  />
+                  {draft.color ? (isPreset(draft.color) ? capitalize(draft.color) : draft.color) : "None"}
+                </button>
+                {draft.color && (
+                  <button className="icon-btn small" onClick={() => update({ color: null })} title="No color">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="prop">
+              <div className="prop-label">
+                {draft.issue ? <ProviderMark repo={draft.issue.repo} size={14} /> : <CircleDot size={14} />} Issue
               </div>
               {draft.issue ? (
                 <div className="linked-issue-chip">
-                  {linked ? <IssueStateIcon issue={linked} size={14} /> : <Github size={14} />}
+                  {linked ? (
+                    <IssueStateIcon issue={linked} size={14} />
+                  ) : (
+                    <ProviderMark repo={draft.issue.repo} size={14} />
+                  )}
                   <span title={`${draft.issue.repo}#${draft.issue.number}`}>
-                    {draft.issue.repo.split("/")[1]}#{draft.issue.number}
+                    {repoName(draft.issue.repo)}#{draft.issue.number}
                   </span>
                   <button className="icon-btn tiny" title="Unlink" onClick={() => update({ issue: null })}>
                     <Link2Off size={13} />
@@ -410,7 +442,7 @@ export function TaskDialog({
                     </button>
                   ) : (
                     <span>
-                      {draft.milestone.repo.split("/")[1]} milestone {draft.milestone.number}
+                      {repoName(draft.milestone.repo)} milestone {draft.milestone.number}
                     </span>
                   )}
                   {milestone && <span className="milestone-progress">{milestoneProgress(milestone)}%</span>}
@@ -427,6 +459,39 @@ export function TaskDialog({
                 </button>
               )}
             </div>
+
+            {(hasEpics || draft.epic) && (
+              <div className="prop">
+                <div className="prop-label">
+                  <Layers size={14} /> Epic
+                </div>
+                {draft.epic ? (
+                  <div
+                    className={cx("linked-issue-chip", "milestone-chip", epic?.state)}
+                    title={epic ? epicSummary(issues, epic) : "Not in the local cache — sync issues"}
+                  >
+                    <Gitlab size={14} />
+                    {epic ? (
+                      <button className="link-text" onClick={() => openUrl(epic.url)}>
+                        {epic.title}
+                      </button>
+                    ) : (
+                      <span>{epicLabel(draft.epic)}</span>
+                    )}
+                    <button className="icon-btn tiny" title="Unlink" onClick={() => update({ epic: null })}>
+                      <Link2Off size={13} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="btn small full"
+                    onClick={(e) => setEpicAnchor(e.currentTarget.getBoundingClientRect())}
+                  >
+                    <Link2 size={14} /> Link epic
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="side-spacer" />
             <button
@@ -506,9 +571,32 @@ export function TaskDialog({
           />
         </Popover>
       )}
+      {colorAnchor && (
+        <Popover anchor={colorAnchor} align="right" onClose={() => setColorAnchor(null)}>
+          <div className="popover-pad">
+            <ColorPicker
+              value={draft.color ?? null}
+              onChange={(c, picked) => {
+                update({ color: c });
+                if (picked) setColorAnchor(null);
+              }}
+            />
+          </div>
+        </Popover>
+      )}
       {pickerAnchor && (
         <Popover anchor={pickerAnchor} align="right" onClose={() => setPickerAnchor(null)}>
           <IssuePicker onPick={linkIssue} />
+        </Popover>
+      )}
+      {epicAnchor && (
+        <Popover anchor={epicAnchor} align="right" onClose={() => setEpicAnchor(null)}>
+          <EpicPicker
+            onPick={(e) => {
+              update({ epic: { group: e.group, iid: e.iid } });
+              setEpicAnchor(null);
+            }}
+          />
         </Popover>
       )}
       {milestoneAnchor && (
@@ -524,6 +612,8 @@ export function TaskDialog({
     </Modal>
   );
 }
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The columns that can take a task on the project's other kanban boards, by board. */
 function BoardColumnPicker({
@@ -623,8 +713,51 @@ function MilestonePicker({ onPick }: { onPick: (m: GhMilestone) => void }) {
             <Milestone size={14} />
             <span className="issue-picker-title">{m.title}</span>
             <span className="faint small">
-              {multiRepo ? `${m.repo.split("/")[1]} · ` : ""}
+              {multiRepo ? `${repoName(m.repo)} · ` : ""}
               {m.state === "closed" ? "closed" : `${milestoneProgress(m)}%`}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The cached GitLab epics of the project's groups, open ones first. */
+function EpicPicker({ onPick }: { onPick: (e: GlEpic) => void }) {
+  const issues = useStore((s) => s.issues);
+  const [q, setQ] = useState("");
+  const all = useMemo(() => allEpics(issues), [issues]);
+  const multiGroup = new Set(all.map((e) => e.group)).size > 1;
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase().replace(/^&/, "");
+    return all.filter((e) => !s || e.title.toLowerCase().includes(s) || String(e.iid).startsWith(s));
+  }, [all, q]);
+
+  return (
+    <div className="issue-picker">
+      <label className="search">
+        <Search size={14} />
+        <input
+          autoFocus
+          placeholder="Search epics by title or &number"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </label>
+      <div className="issue-picker-list">
+        {shown.map((e) => (
+          <button
+            key={`${e.group}&${e.iid}`}
+            className={cx("issue-picker-item", e.state === "closed" && "faint")}
+            onClick={() => onPick(e)}
+            title={epicSummary(issues, e)}
+          >
+            <Layers size={14} />
+            <span className="issue-picker-title">{e.title}</span>
+            <span className="faint small">
+              {multiGroup ? epicLabel(e) : `&${e.iid}`}
+              {e.state === "closed" ? " · closed" : ""}
             </span>
           </button>
         ))}

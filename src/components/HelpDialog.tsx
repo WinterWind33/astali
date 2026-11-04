@@ -106,7 +106,7 @@ const PAGES: HelpPage[] = [
         term: "Project views",
         text: (
           <>
-            <b>Activity</b>, <b>Tags</b>, <b>Decisions</b> and <b>Glossary</b> cover the whole project. <b>GitHub</b>{" "}
+            <b>Activity</b>, <b>Tags</b>, <b>Decisions</b> and <b>Glossary</b> cover the whole project. <b>Issues</b>{" "}
             appears once a repository is linked.
           </>
         ),
@@ -199,7 +199,7 @@ const PAGES: HelpPage[] = [
         text: (
           <>
             Suggestions appear as you type: arrows move, <kbd>Enter</kbd> adds, <kbd>Esc</kbd> closes the list. A task
-            can also link a GitHub issue.
+            can also link a GitHub or GitLab issue, and a GitLab epic.
           </>
         ),
       },
@@ -236,7 +236,7 @@ const PAGES: HelpPage[] = [
         ),
       },
     ],
-    tip: <>Tags are solid square chips; GitHub labels are outlined pills with the GitHub mark.</>,
+    tip: <>Tags are solid square chips; GitHub and GitLab labels are outlined pills with the GitHub or GitLab mark.</>,
   },
   {
     title: "Plans",
@@ -433,12 +433,12 @@ const PAGES: HelpPage[] = [
     tip: <>Tick “All projects” to look through every project of the vault.</>,
   },
   {
-    title: "GitHub",
+    title: "GitHub and GitLab",
     icon: <CircleDot size={18} />,
     lead: (
       <>
-        Link a project to GitHub repositories from its settings. Astali only <i>reads</i> issues and labels: it never
-        changes them.
+        Link a project to GitHub repositories or gitlab.com projects from its settings. Astali only <i>reads</i>
+        issues, labels and GitLab epics: it never changes them.
       </>
     ),
     points: [
@@ -453,7 +453,7 @@ const PAGES: HelpPage[] = [
       },
       {
         term: "Label columns",
-        text: <>Always show the issues carrying a GitHub label, and follow it when it's renamed.</>,
+        text: <>Always show the issues carrying a label, and follow it when it's renamed.</>,
       },
       {
         term: "Refresh",

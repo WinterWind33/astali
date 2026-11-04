@@ -1,13 +1,14 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useDraggable } from "@dnd-kit/core";
-import { AlignLeft, Ban, Calendar, CheckSquare, Columns3, Milestone } from "lucide-react";
+import { AlignLeft, Ban, Calendar, CheckSquare, Columns3, Layers, Milestone } from "lucide-react";
+import { epicLabel, findEpic } from "../../lib/epics";
 import { findMilestone, milestoneSummary } from "../../lib/milestones";
 import { memo } from "react";
 import { boardOfTask, openBlockers } from "../../lib/links";
 import { clearSelection, selectRange, toggleSelected, useStore } from "../../lib/store";
 import type { Priority, Task } from "../../lib/types";
-import { cx, dueStatus, formatDate } from "../../lib/util";
+import { colorHex, cx, dueStatus, formatDate, repoName } from "../../lib/util";
 import { GhLabelChip, IssueStateIcon, TagChip } from "../ui";
 
 export const PRIORITY_META: Record<Priority, { label: string; level: number }> = {
@@ -49,6 +50,7 @@ export const TaskCard = memo(function TaskCard({
     task.issue ? s.issues.repos[task.issue.repo]?.issues.find((i) => i.number === task.issue!.number) : undefined,
   );
   const milestone = useStore((s) => findMilestone(s.issues, task.milestone));
+  const epic = useStore((s) => findEpic(s.issues, task.epic));
   const highlighted = useStore((s) => s.highlight.includes(task.id));
   const selected = useStore((s) => s.selection.includes(task.id));
   // Titles joined into one string, so the card only re-renders when its blockers change.
@@ -66,7 +68,14 @@ export const TaskCard = memo(function TaskCard({
 
   return (
     <div
-      className={cx("task-card", `prio-${task.priority}`, highlighted && "highlight", selected && "selected")}
+      className={cx(
+        "task-card",
+        `prio-${task.priority}`,
+        task.color && "tinted",
+        highlighted && "highlight",
+        selected && "selected",
+      )}
+      style={task.color ? ({ "--c": colorHex(task.color) } as React.CSSProperties) : undefined}
       onClick={(e) => {
         // Ctrl/⌘-click picks cards to change together; Shift-click a run of them (SelectionPanel).
         if (e.ctrlKey || e.metaKey) return toggleSelected(task.id);
@@ -91,6 +100,7 @@ export const TaskCard = memo(function TaskCard({
       </div>
       {(task.issue ||
         task.milestone ||
+        task.epic ||
         task.dueDate ||
         task.checklist.length > 0 ||
         task.description ||
@@ -115,7 +125,7 @@ export const TaskCard = memo(function TaskCard({
               title={issue ? issue.title : "Not in the local cache — sync issues"}
             >
               {issue ? <IssueStateIcon issue={issue} size={13} /> : <span className="issue-dot" />}
-              {task.issue.repo.split("/")[1]}#{task.issue.number}
+              {repoName(task.issue.repo)}#{task.issue.number}
             </span>
           )}
           {task.milestone && (
@@ -124,7 +134,16 @@ export const TaskCard = memo(function TaskCard({
               title={milestone ? milestoneSummary(milestone) : "Not in the local cache — sync issues"}
             >
               <Milestone size={12} />
-              {milestone?.title ?? `${task.milestone.repo.split("/")[1]} milestone ${task.milestone.number}`}
+              {milestone?.title ?? `${repoName(task.milestone.repo)} milestone ${task.milestone.number}`}
+            </span>
+          )}
+          {task.epic && (
+            <span
+              className={cx("task-milestone", epic?.state)}
+              title={epic ? `Epic: ${epic.title}` : "Not in the local cache — sync issues"}
+            >
+              <Layers size={12} />
+              {epic?.title ?? epicLabel(task.epic)}
             </span>
           )}
           {task.dueDate && (

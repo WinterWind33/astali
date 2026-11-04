@@ -3,14 +3,16 @@ import { useState, type ReactNode } from "react";
 import {
   githubAuthOverride,
   githubTokenProblem,
+  gitlabTokenProblem,
   setGithubAuthOverride,
   setGithubToken,
+  setGitlabToken,
   toast,
   useStore,
   type GithubAuthOverride,
 } from "../lib/store";
 import { cx } from "../lib/util";
-import { Github } from "./ui";
+import { Github, Gitlab } from "./ui";
 
 const longDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -114,6 +116,64 @@ function GithubConnector() {
   );
 }
 
+function GitlabConnector() {
+  const saved = useStore((s) => s.config.gitlabToken);
+  const auth = useStore((s) => s.gitlabAuth);
+  const problem = useStore(gitlabTokenProblem);
+  const expired = problem && auth?.state === "ok";
+  const [token, setToken] = useState(saved);
+  const [show, setShow] = useState(false);
+
+  return (
+    <ConnectorCard
+      icon={<Gitlab size={20} />}
+      name="GitLab"
+      description="Issues, labels and epics of the gitlab.com projects linked to your projects."
+      status={problem ? (expired ? "Token expired" : "Token invalid") : saved ? "Token set" : "Public access"}
+      active={!!saved && !problem}
+      danger={problem}
+    >
+      <p className="muted small">
+        Optional personal access token with the <code>read_api</code> scope. Needed for private projects and for epics,
+        which GitLab only shows to signed-in users of Premium and Ultimate groups. Kept in your system's credential
+        store, never inside the vault.
+      </p>
+      <div className="input-row">
+        <input
+          type={show ? "text" : "password"}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="glpat-…"
+          spellCheck={false}
+        />
+        <button className="icon-btn" onClick={() => setShow(!show)} title={show ? "Hide" : "Show"}>
+          {show ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+        <button
+          className="btn primary"
+          disabled={token === saved}
+          onClick={() => {
+            setGitlabToken(token.trim());
+            toast("GitLab token saved", "success");
+          }}
+        >
+          Save
+        </button>
+      </div>
+      {problem ? (
+        <p className="connector-error small">
+          {expired
+            ? `This token expired${auth?.expiresAt ? ` on ${longDate(auth.expiresAt)}` : ""}.`
+            : "GitLab no longer accepts this token: it may have been revoked or mistyped."}{" "}
+          Private GitLab projects won't sync until you paste a new one above.
+        </p>
+      ) : (
+        auth?.expiresAt && <p className="small faint">Expires on {longDate(auth.expiresAt)}.</p>
+      )}
+    </ConnectorCard>
+  );
+}
+
 /** Dev builds only: forces a token state whatever GitHub says, to try the dots and messages. */
 function DevTokenPicker() {
   const [override, setOverride] = useState(githubAuthOverride);
@@ -146,6 +206,7 @@ export function ConnectorsSettings() {
       <p className="muted small">Services Astali reads issues from.</p>
       <div className="connector-list">
         <GithubConnector />
+        <GitlabConnector />
       </div>
     </section>
   );

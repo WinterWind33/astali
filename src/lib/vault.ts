@@ -124,10 +124,12 @@ export function normalizeTask(t: Partial<Task>): Task {
           typeof l.task === "string",
       )
     : [];
-  const { links: _, ...rest } = t;
+  const { links: _, color: c, ...rest } = t;
+  const color = isPreset(c ?? undefined) ? c : normalizeHex(c);
   return {
     ...rest,
     ...(links.length ? { links } : {}),
+    ...(color ? { color } : {}),
     id: t.id ?? uid(),
     title: t.title ?? "Untitled",
     description: t.description ?? "",

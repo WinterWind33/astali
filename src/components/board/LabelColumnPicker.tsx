@@ -92,7 +92,7 @@ export function LabelColumnPicker({
             <p className="muted small">
               {repos.length
                 ? "The repositories' labels haven't been loaded yet."
-                : "Add a GitHub repository in project settings to bind columns to its labels."}
+                : "Add a GitHub repository or GitLab project in project settings to bind columns to its labels."}
             </p>
             {repos.length > 0 && (
               <button className="btn small" disabled={syncing} onClick={() => syncIssues()}>

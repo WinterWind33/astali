@@ -9,6 +9,7 @@ import {
   Pencil,
   Search,
   StickyNote,
+  Tag,
   Tags,
   Trash2,
 } from "lucide-react";
@@ -31,7 +32,7 @@ import { decisionRef } from "../lib/decisions";
 import { searchTerms } from "../lib/glossary";
 import { collectTags, decisionList, defaultTagColor, hasTag, tagKey, tagOrder } from "../lib/tags";
 import type { Board, Decision, GhIssue, GhLabel, IssueRef, TagRef, Task } from "../lib/types";
-import { colorHex, cx, issueKey, relativeTime } from "../lib/util";
+import { colorHex, cx, issueKey, labelUrl, providerName, relativeTime, repoName, repoPath } from "../lib/util";
 import { ColorPicker } from "./ColorPicker";
 import { TagSortMenu, useTagSort } from "./TagSortMenu";
 import { PriorityIcon } from "./board/TaskCard";
@@ -39,7 +40,6 @@ import { TaskDialog } from "./board/TaskDialog";
 import {
   EmptyState,
   GhLabelChip,
-  Github,
   InlineEdit,
   IssuePanel,
   IssueStateIcon,
@@ -47,6 +47,7 @@ import {
   Modal,
   ModalHeader,
   Popover,
+  ProviderMark,
   TagChip,
   confirm,
   useTagColor,
@@ -66,9 +67,9 @@ const sameRef = (a: TagRef | undefined, b: TagRef) =>
   (a.kind === "tag" || (b.kind === "label" && a.repo === b.repo));
 
 /**
- * Every tag of the project's tasks and every label of its GitHub repositories, in two clearly
+ * Every tag of the project's tasks and every label of its GitHub and GitLab repositories, in two clearly
  * separate lists. Picking one lists everything carrying it: tasks across all boards for a tag,
- * cached issues (and the tasks they are linked to) for a GitHub label.
+ * cached issues (and the tasks they are linked to) for a label.
  */
 export function TagsView({ selected }: { selected?: TagRef }) {
   const project = useStore((s) => currentProject(s)?.project);
@@ -147,8 +148,8 @@ export function TagsView({ selected }: { selected?: TagRef }) {
           <span className="board-name">Tags</span>
           <span className="board-desc">
             Your tags on tasks and decisions
-            {project.repos.length ? ", and the labels of the project's GitHub repositories" : ""}. Pick one to see
-            everything carrying it.
+            {project.repos.length ? ", and the labels of the project's repositories" : ""}. Pick one to see everything
+            carrying it.
           </span>
         </div>
       </div>
@@ -188,7 +189,7 @@ export function TagsView({ selected }: { selected?: TagRef }) {
             {project.repos.length > 0 && (
               <>
                 <div className="tags-list-head gh">
-                  <Github size={13} /> GitHub labels <span className="faint">{labels.length}</span>
+                  <Tag size={13} /> Labels <span className="faint">{labels.length}</span>
                 </div>
                 {shownLabels.map((l, i) => (
                   <div key={`${l.repo}|${l.label.name}`}>
@@ -235,8 +236,13 @@ export function TagsView({ selected }: { selected?: TagRef }) {
               sameTag={tags.find((t) => tagKey(t.name) === tagKey(currentLabel.label.name))?.name}
             />
           ) : current?.kind === "label" ? (
-            <EmptyState icon={<Github size={28} />} title={`“${current.name}” isn't a label of ${current.repo}`}>
-              <p className="muted">It may have been deleted on GitHub, or the issues haven't been synced yet.</p>
+            <EmptyState
+              icon={<ProviderMark repo={current.repo} size={28} />}
+              title={`“${current.name}” isn't a label of ${repoPath(current.repo)}`}
+            >
+              <p className="muted">
+                It may have been deleted on {providerName(current.repo)}, or the issues haven't been synced yet.
+              </p>
             </EmptyState>
           ) : (
             <EmptyState icon={<Tags size={28} />} title="No tags yet">
@@ -408,8 +414,8 @@ function TagDetail({
 
       {sameLabels.length > 0 && (
         <div className="tags-hint">
-          <Github size={13} />
-          <span>GitHub also has a label with this name. It is separate from the tag:</span>
+          <ProviderMark repo={sameLabels[0].repo} size={13} />
+          <span>A linked repository also has a label with this name. It is separate from the tag:</span>
           {sameLabels.map((l) => (
             <GhLabelChip key={l.repo} label={l.label} repo={l.repo} />
           ))}
@@ -557,8 +563,8 @@ function TaskRow({
             ))}
             {task.issue && (
               <span className={cx("task-issue", issue?.state)}>
-                {issue ? <IssueStateIcon issue={issue} size={12} /> : <Github size={12} />}
-                {task.issue.repo.split("/")[1]}#{task.issue.number}
+                {issue ? <IssueStateIcon issue={issue} size={12} /> : <ProviderMark repo={task.issue.repo} size={12} />}
+                {repoName(task.issue.repo)}#{task.issue.number}
               </span>
             )}
           </div>
@@ -600,12 +606,13 @@ function LabelDetail({ entry, sameTag }: { entry: RepoLabel; sameTag?: string })
         <span
           className="tags-color-btn static"
           style={{ background: `#${label.color}` }}
-          title="Colors of GitHub labels are set on GitHub"
+          title={`Colors of ${providerName(repo)} labels are set on ${providerName(repo)}`}
         />
         <div className="tags-detail-title">
           <div className="tags-detail-name">{label.name}</div>
           <div className="faint small">
-            <Github size={11} /> GitHub label of {repo} · {openCount} open, {entry.issues.length - openCount} closed
+            <ProviderMark repo={repo} size={11} /> {providerName(repo)} label of {repoPath(repo)} · {openCount} open,{" "}
+            {entry.issues.length - openCount} closed
             {label.description ? ` · ${label.description}` : ""}
           </div>
         </div>
@@ -614,18 +621,15 @@ function LabelDetail({ entry, sameTag }: { entry: RepoLabel; sameTag?: string })
           <input type="checkbox" checked={closed} onChange={(e) => setClosed(e.target.checked)} />
           <span>Closed</span>
         </label>
-        <button
-          className="btn small"
-          onClick={() => openUrl(`https://github.com/${repo}/labels/${encodeURIComponent(label.name)}`)}
-        >
-          <ExternalLink size={13} /> GitHub
+        <button className="btn small" onClick={() => openUrl(labelUrl(repo, label.name))}>
+          <ExternalLink size={13} /> {providerName(repo)}
         </button>
       </div>
 
       {sameTag && (
         <div className="tags-hint">
           <Tags size={13} />
-          <span>Your tasks also use a tag with this name. It is separate from the GitHub label:</span>
+          <span>Your tasks also use a tag with this name. It is separate from the label:</span>
           <TagChip tag={sameTag} />
         </div>
       )}
@@ -666,7 +670,7 @@ function LabelDetail({ entry, sameTag }: { entry: RepoLabel; sameTag?: string })
                 )}
                 <button
                   className="icon-btn small"
-                  title="Open on GitHub"
+                  title={`Open on ${providerName(i.repo)}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     openUrl(i.url);
@@ -683,8 +687,8 @@ function LabelDetail({ entry, sameTag }: { entry: RepoLabel; sameTag?: string })
       {issue && (
         <Modal onClose={() => setOpenIssue(null)} width={720}>
           <ModalHeader
-            title="GitHub issue"
-            subtitle="Not on a board yet. Add it from the Issues view, or edit it on GitHub."
+            title={`${providerName(issue.repo)} issue`}
+            subtitle={`Not on a board yet. Add it from the Issues view, or edit it on ${providerName(issue.repo)}.`}
             onClose={() => setOpenIssue(null)}
           />
           <div className="form">
