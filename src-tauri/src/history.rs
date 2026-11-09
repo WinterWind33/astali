@@ -24,6 +24,8 @@ const MAX_LOG_BYTES: u64 = 4 << 20;
 const KEEP_LOG_BYTES: usize = 2 << 20;
 /// Consecutive edits of the same fields in the app (typing a description) collapse into one entry.
 const MERGE_WINDOW_MS: u64 = 2 * 60_000;
+/// How long a deleted project can be restored; the home page counts down the same 30 days.
+const RESTORE_WINDOW_MS: u64 = 30 * 24 * 60 * 60_000;
 
 pub fn log_path(vault: &Path) -> PathBuf {
     vault.join(".astali").join("history.jsonl")
@@ -328,8 +330,35 @@ fn append(vault: &Path, mut e: Value) -> R<()> {
     Ok(())
 }
 
+fn is_project_delete(e: &Value) -> bool {
+    e["changes"]
+        .as_array()
+        .is_some_and(|c| c.iter().any(|c| c["op"] == "project.delete"))
+}
+
+/// A project deletion still inside its restore window.
+fn is_restorable(line: &str, now: u64) -> bool {
+    line.contains("\"project.delete\"")
+        && serde_json::from_str::<Value>(line).is_ok_and(|e| {
+            is_project_delete(&e)
+                && e["t"]
+                    .as_u64()
+                    .is_some_and(|t| now.saturating_sub(t) < RESTORE_WINDOW_MS)
+        })
+}
+
 fn trim(path: &Path) -> R<()> {
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let now = now_ms();
+    // A deleted project stays restorable for its whole window, so only the rest counts towards the limit.
+    let held: usize = text
+        .lines()
+        .filter(|l| is_restorable(l, now))
+        .map(|l| l.len() + 1)
+        .sum();
+    if (text.len() - held) as u64 <= MAX_LOG_BYTES {
+        return Ok(());
+    }
     let mut cut = text.len().saturating_sub(KEEP_LOG_BYTES);
     while !text.is_char_boundary(cut) {
         cut += 1;
@@ -338,7 +367,78 @@ fn trim(path: &Path) -> R<()> {
         Some(i) if cut > 0 => &text[cut + i + 1..],
         _ => &text[cut..],
     };
-    vaultfs::write_atomic(path, keep)
+    let mut out: String = text[..text.len() - keep.len()]
+        .lines()
+        .filter(|l| is_restorable(l, now))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    out.push_str(keep);
+    vaultfs::write_atomic(path, &out)
+}
+
+/// Permanently removes projects deleted over 30 days ago: every entry of theirs leaves the log, so
+/// nothing of them is left to restore. The wait starts at `since` (Unix milliseconds) for older deletions.
+/// Returns how many projects went.
+pub fn purge_deleted_projects(vault: &Path, since: u64) -> R<usize> {
+    let path = log_path(vault);
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Ok(0);
+    };
+    let entries: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+    let undone = undone_by(&entries);
+    // Oldest first, so a project deleted twice ends up with its latest deletion.
+    let mut deleted: HashMap<String, u64> = HashMap::new();
+    for e in entries
+        .iter()
+        .filter(|e| is_project_delete(e) && !undone.contains_key(&s(e, "id")))
+    {
+        deleted.insert(s(&e["project"], "id"), e["t"].as_u64().unwrap_or(0));
+    }
+    let now = now_ms();
+    let expired: HashSet<String> = deleted
+        .into_iter()
+        .filter(|(id, t)| {
+            !id.is_empty()
+                && now.saturating_sub((*t).max(since)) >= RESTORE_WINDOW_MS
+                && find_project_dir(vault, id).is_none()
+        })
+        .map(|(id, _)| id)
+        .collect();
+    if expired.is_empty() {
+        return Ok(0);
+    }
+    drop_projects(&path, &text, &expired)?;
+    Ok(expired.len())
+}
+
+/// Permanently removes one deleted project now, without waiting for its 30 days.
+pub fn purge_project(vault: &Path, id: &str) -> R<()> {
+    let path = log_path(vault);
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let was_deleted = text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .any(|e| is_project_delete(&e) && s(&e["project"], "id") == id);
+    if id.is_empty() || !was_deleted {
+        return Err("That deleted project is no longer in the history".into());
+    }
+    if find_project_dir(vault, id).is_some() {
+        return Err("That project exists again, so it can't be permanently deleted from here".into());
+    }
+    drop_projects(&path, &text, &HashSet::from([id.to_string()]))
+}
+
+/// Rewrites the log without any entry of the projects `ids`.
+fn drop_projects(path: &Path, text: &str, ids: &HashSet<String>) -> R<()> {
+    let mut out = String::new();
+    for line in text.lines() {
+        let gone = serde_json::from_str::<Value>(line).is_ok_and(|e| ids.contains(&s(&e["project"], "id")));
+        if !gone {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    vaultfs::write_atomic(path, &out)
 }
 
 /// Collapses a new app entry into the previous one when both only edit the same fields of the same
@@ -822,6 +922,11 @@ fn field_label(k: &str) -> &str {
         "dueDate" => "due date",
         "wipLimit" => "WIP limit",
         "issue" => "linked issue",
+        "mergeRequest" => "linked merge request",
+        "moreIssues" => "further linked issues",
+        "moreMergeRequests" => "further linked merge requests",
+        "moreMilestones" => "further milestones",
+        "moreEpics" => "further epics",
         "repos" => "repositories",
         "source" => "source",
         "tagColors" => "tag colors",
@@ -868,11 +973,25 @@ pub fn describe(c: &Value) -> String {
     match s(c, "op").as_str() {
         "project.create" => format!("Created project {}", q(&c["project"]["name"])),
         "project.delete" => format!("Deleted project {}", q(&c["project"]["name"])),
+        "project.update"
+            if c["after"]
+                .as_object()
+                .is_some_and(|a| a.len() == 1 && a.contains_key("archivedAt")) =>
+        {
+            let verb = if c["after"]["archivedAt"].is_string() {
+                "Archived"
+            } else {
+                "Restored"
+            };
+            format!("{verb} project {}", q(&c["name"]))
+        }
         "project.update" => describe_update("project ", "name", &c["name"], c),
         "board.create" if c["board"]["kind"] == "plan" => format!("Created plan {}", q(&c["board"]["name"])),
         "board.create" if c["board"]["kind"] == "notes" => format!("Created notes board {}", q(&c["board"]["name"])),
         "board.create" if c["board"]["kind"] == "glossary" => format!("Created glossary {}", q(&c["board"]["name"])),
+        "board.create" if c["board"]["kind"] == "view" => format!("Created view-only board {}", q(&c["board"]["name"])),
         "board.create" => format!("Created board {}", q(&c["board"]["name"])),
+        "board.delete" if c["board"]["kind"] == "view" => format!("Deleted view-only board {}", q(&c["board"]["name"])),
         "board.delete" if c["board"]["kind"] == "plan" => format!("Deleted plan {}", q(&c["board"]["name"])),
         "board.delete" if c["board"]["kind"] == "notes" => {
             let n = c["board"]["notes"].as_array().map(Vec::len).unwrap_or(0);
@@ -1900,6 +2019,110 @@ mod tests {
         assert_eq!(headline(&del), "Deleted project “Proj”");
         undo(&v, &s(&del, "id"), false, &a).unwrap();
         assert!(vaultfs::read_json(&path).unwrap()["tasks"]["a"].is_object());
+        let _ = fs::remove_dir_all(v);
+    }
+
+    const DAY: u64 = 24 * 60 * 60_000;
+
+    /// Rewrites every entry of the log as made `days` ago.
+    fn age_log(v: &Path, days: u64) {
+        let t = now_ms() - days * DAY;
+        let lines: Vec<String> = read_all(v)
+            .into_iter()
+            .map(|mut e| {
+                e["t"] = json!(t);
+                e.to_string()
+            })
+            .collect();
+        fs::write(log_path(v), lines.join("\n") + "\n").unwrap();
+    }
+
+    #[test]
+    fn deleted_project_is_purged_after_its_window() {
+        let (v, path) = setup("purge");
+        let a = Actor::app();
+        write_json(&v, &path, &board(&[("todo", &["a"])], &[("a", "A")]), &a).unwrap();
+        remove(Some(&v), &v.join("p"), &a).unwrap();
+
+        age_log(&v, 29);
+        assert_eq!(purge_deleted_projects(&v, 0).unwrap(), 0);
+        assert!(!read_all(&v).is_empty());
+
+        age_log(&v, 31);
+        // A deletion from before the update waits 30 days from the update.
+        assert_eq!(purge_deleted_projects(&v, now_ms() - 5 * DAY).unwrap(), 0);
+        assert_eq!(purge_deleted_projects(&v, now_ms() - 31 * DAY).unwrap(), 1);
+        assert!(read_all(&v).is_empty());
+        let _ = fs::remove_dir_all(v);
+    }
+
+    #[test]
+    fn deleted_project_can_be_purged_right_away() {
+        let (v, path) = setup("purgenow");
+        let a = Actor::app();
+        write_json(&v, &path, &board(&[("todo", &["a"])], &[("a", "A")]), &a).unwrap();
+        // Only a project that was deleted, and hasn't come back.
+        assert!(purge_project(&v, "p1").is_err());
+        remove(Some(&v), &v.join("p"), &a).unwrap();
+        let del = read_all(&v).last().cloned().unwrap();
+        undo(&v, &s(&del, "id"), false, &a).unwrap();
+        assert!(purge_project(&v, "p1").is_err());
+        assert!(path.is_file());
+
+        remove(Some(&v), &v.join("p"), &a).unwrap();
+        purge_project(&v, "p1").unwrap();
+        assert!(read_all(&v).is_empty());
+        assert!(purge_project(&v, "p1").is_err());
+        let _ = fs::remove_dir_all(v);
+    }
+
+    #[test]
+    fn restored_project_is_not_purged() {
+        let (v, path) = setup("purgekeep");
+        let a = Actor::app();
+        write_json(&v, &path, &board(&[("todo", &["a"])], &[("a", "A")]), &a).unwrap();
+        remove(Some(&v), &v.join("p"), &a).unwrap();
+        let del = read_all(&v).last().cloned().unwrap();
+        undo(&v, &s(&del, "id"), false, &a).unwrap();
+        age_log(&v, 40);
+        assert_eq!(purge_deleted_projects(&v, 0).unwrap(), 0);
+        assert!(path.is_file());
+        let _ = fs::remove_dir_all(v);
+    }
+
+    #[test]
+    fn trimming_keeps_a_deleted_project_until_its_window_ends() {
+        let (v, path) = setup("trimkeep");
+        let a = Actor::app();
+        write_json(&v, &path, &board(&[("todo", &["a"])], &[("a", "A")]), &a).unwrap();
+        remove(Some(&v), &v.join("p"), &a).unwrap();
+        let del = fs::read_to_string(log_path(&v)).unwrap();
+        let filler = format!(
+            "{}\n",
+            json!({ "id": "f", "t": now_ms(), "project": {}, "changes": [], "pad": "x".repeat(1024) })
+        );
+        let log = del + &filler.repeat(5 * 1024);
+        fs::write(log_path(&v), &log).unwrap();
+        trim(&log_path(&v)).unwrap();
+        let all = read_all(&v);
+        assert!((fs::metadata(log_path(&v)).unwrap().len()) < MAX_LOG_BYTES);
+        assert!(all.iter().any(is_project_delete));
+        let _ = fs::remove_dir_all(v);
+    }
+
+    #[test]
+    fn archiving_a_project_reads_well_and_undoes() {
+        let (v, _) = setup("archive");
+        let a = Actor::app();
+        let file = v.join("p").join("project.json");
+        let plain = vaultfs::read_json(&file).unwrap();
+        let mut archived = plain.clone();
+        archived["archivedAt"] = json!("2026-11-09T10:00:00.000Z");
+        write_json(&v, &file, &archived, &a).unwrap();
+        let e = read_all(&v).last().cloned().unwrap();
+        assert_eq!(headline(&e), "Archived project “Proj”");
+        undo(&v, &s(&e, "id"), false, &a).unwrap();
+        assert!(!vaultfs::read_json(&file).unwrap()["archivedAt"].is_string());
         let _ = fs::remove_dir_all(v);
     }
 

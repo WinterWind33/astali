@@ -20,6 +20,7 @@ import { doneColumn, isViewColumn, normalizeSource } from "./labelColumns";
 import { normalizeNote, normalizeNoteLimit } from "./notes";
 import { emptyPlan, normalizePlan } from "./plan";
 import { normalizeTagColors } from "./tags";
+import { newViewRules, normalizeRules, normalizeViewSort } from "./viewBoards";
 import { isPreset, normalizeColor, now, slugify, uid } from "./util";
 import { normalizeHex } from "./color";
 
@@ -94,8 +95,10 @@ export async function writeVaultName(vault: string, name: string) {
  * know: a vault written by a newer Astali must come back unchanged when this version saves it.
  */
 
-export function normalizeProject(p: Partial<Project>): Project {
-  return {
+export function normalizeProject(raw: Partial<Project>): Project {
+  // Undo of an archive leaves `archivedAt: null` behind; only a date means archived.
+  const { archivedAt, ...p } = raw;
+  const project: Project = {
     ...p,
     schemaVersion: SCHEMA_VERSION,
     id: p.id ?? uid(),
@@ -112,6 +115,7 @@ export function normalizeProject(p: Partial<Project>): Project {
     createdAt: p.createdAt ?? now(),
     updatedAt: p.updatedAt ?? now(),
   };
+  return typeof archivedAt === "string" ? { ...project, archivedAt } : project;
 }
 
 export function normalizeTask(t: Partial<Task>): Task {
@@ -196,6 +200,25 @@ function normalizeBoardBody(b: Partial<Board>): Board {
       updatedAt: b.updatedAt ?? now(),
     };
   }
+  if (b.kind === "view") {
+    // A view board stores only rules: its cards are computed, and it never holds tasks.
+    const { viewFirstMatch, ...view } = b;
+    return {
+      ...view,
+      ...(viewFirstMatch === true ? { viewFirstMatch } : {}),
+      schemaVersion: SCHEMA_VERSION,
+      id: b.id ?? uid(),
+      name: b.name ?? "View",
+      description: b.description ?? "",
+      kind: "view",
+      viewRules: normalizeRules(b.viewRules),
+      viewSort: normalizeViewSort(b.viewSort),
+      columns: columns.filter((c) => c.source?.kind === "query"),
+      tasks: {},
+      createdAt: b.createdAt ?? now(),
+      updatedAt: b.updatedAt ?? now(),
+    };
+  }
   if (b.kind === "glossary") {
     // A glossary holds terms, never columns or tasks.
     return {
@@ -259,6 +282,10 @@ export function newBoard(name: string): Board {
 
 export function newNotesBoard(name: string): Board {
   return normalizeBoard({ id: uid(), name, kind: "notes", notes: [], columns: [], tasks: {} });
+}
+
+export function newViewBoard(name: string): Board {
+  return normalizeBoard({ id: uid(), name, kind: "view", viewRules: newViewRules(), columns: [], tasks: {} });
 }
 
 export function newGlossaryBoard(name: string): Board {

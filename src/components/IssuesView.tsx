@@ -14,8 +14,10 @@ import {
   useStore,
 } from "../lib/store";
 import { isViewColumn } from "../lib/labelColumns";
+import { listedKey, listedSign, mergeRequestsName } from "../lib/mergeRequests";
 import type { GhIssue } from "../lib/types";
-import { cx, providerName, relativeTime, repoPath } from "../lib/util";
+import { cx, providerName, relativeTime, repoKey, repoPath } from "../lib/util";
+import { FetchUnlisted } from "./FetchUnlisted";
 import { EmptyState, GhLabelChip, IssueStateIcon, Markdown, Popover } from "./ui";
 
 type StateFilter = "open" | "closed" | "all";
@@ -37,11 +39,14 @@ export function IssuesView() {
   const [rangeAnchor, setRangeAnchor] = useState<string | null>(null);
 
   const links = useMemo(() => linkedIssueIndex(boardsMap), [boardsMap]);
-  const all = useMemo(() => Object.values(issues.repos).flatMap((r) => r.issues), [issues]);
+  const all = useMemo(
+    () => Object.values(issues.repos).flatMap((r) => [...r.issues, ...(r.mergeRequests ?? [])]),
+    [issues],
+  );
   const repoKeys = Object.keys(issues.repos);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase().replace(/^#/, "");
+    const q = query.trim().toLowerCase().replace(/^[#!]/, "");
     return all
       .filter((i) => prs || !i.isPullRequest)
       .filter((i) => state === "all" || i.state === state)
@@ -58,8 +63,8 @@ export function IssuesView() {
   }, [all, prs, state, repo, query]);
 
   // Issues already on a board can't be added again, so they're not selectable.
-  const selectable = useMemo(() => filtered.filter((i) => !links.has(issueKey(i))), [filtered, links]);
-  const selectedIssues = useMemo(() => selectable.filter((i) => selected.has(issueKey(i))), [selectable, selected]);
+  const selectable = useMemo(() => filtered.filter((i) => !links.has(listedKey(i))), [filtered, links]);
+  const selectedIssues = useMemo(() => selectable.filter((i) => selected.has(listedKey(i))), [selectable, selected]);
 
   // A selection only makes sense for the list it was made in.
   useEffect(() => {
@@ -68,16 +73,16 @@ export function IssuesView() {
   }, [state, repo, query, prs]);
 
   const toggle = (i: GhIssue, shift: boolean) => {
-    const key = issueKey(i);
+    const key = listedKey(i);
     const on = !selected.has(key);
     const next = new Set(selected);
-    const from = shift && rangeAnchor ? filtered.findIndex((x) => issueKey(x) === rangeAnchor) : -1;
+    const from = shift && rangeAnchor ? filtered.findIndex((x) => listedKey(x) === rangeAnchor) : -1;
     const to = filtered.indexOf(i);
     if (from >= 0) {
       for (const x of filtered.slice(Math.min(from, to), Math.max(from, to) + 1)) {
-        if (links.has(issueKey(x))) continue;
-        if (on) next.add(issueKey(x));
-        else next.delete(issueKey(x));
+        if (links.has(listedKey(x))) continue;
+        if (on) next.add(listedKey(x));
+        else next.delete(listedKey(x));
       }
     } else if (on) next.add(key);
     else next.delete(key);
@@ -86,7 +91,7 @@ export function IssuesView() {
   };
 
   const allSelected = selectable.length > 0 && selectedIssues.length === selectable.length;
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectable.map(issueKey)));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectable.map(listedKey)));
 
   const counts = useMemo(() => {
     const base = all.filter((i) => (prs || !i.isPullRequest) && (repo === "all" || i.repo === repo));
@@ -139,7 +144,7 @@ export function IssuesView() {
         )}
         <label className="toggle">
           <input type="checkbox" checked={prs} onChange={(e) => setPrs(e.target.checked)} />
-          <span>Pull requests</span>
+          <span>{mergeRequestsName(repo === "all" ? project.project.repos.map(repoKey) : [repo])}</span>
         </label>
         <span className="spacer" />
         <label className="search">
@@ -208,10 +213,15 @@ export function IssuesView() {
             )}
           </EmptyState>
         ) : filtered.length === 0 ? (
-          <div className="faint pad center">No issues match these filters.</div>
+          <div className="faint pad center">
+            No issues match these filters.
+            <div className="issue-picker" style={{ margin: "8px auto 0" }}>
+              <FetchUnlisted query={query} onFetched={(i) => i.state !== state && setState("all")} />
+            </div>
+          </div>
         ) : (
           filtered.slice(0, limit).map((i) => {
-            const key = issueKey(i);
+            const key = listedKey(i);
             const linkedOn = links.get(key);
             const open = expanded === key;
             return (
@@ -235,8 +245,9 @@ export function IssuesView() {
                       ))}
                     </div>
                     <div className="issue-row-sub faint small">
-                      {repoKeys.length > 1 && <span>{repoPath(i.repo)} </span>}#{i.number} · {i.author} · updated{" "}
-                      {relativeTime(i.updatedAt)}
+                      {repoKeys.length > 1 && <span>{repoPath(i.repo)} </span>}
+                      {listedSign(i)}
+                      {i.number} · {i.author} · updated {relativeTime(i.updatedAt)}
                       {i.milestone && <> · {i.milestone}</>}
                     </div>
                   </div>
@@ -304,7 +315,10 @@ export function IssuesView() {
                       onClick={() => {
                         const { issues: picked } = addFor;
                         const added = addIssueTasks(b.id, c.id, picked);
-                        const what = picked.length === 1 ? `#${picked[0].number}` : `${added.toLocaleString()} issues`;
+                        const what =
+                          picked.length === 1
+                            ? `${listedSign(picked[0])}${picked[0].number}`
+                            : `${added.toLocaleString()} issues`;
                         const skipped = picked.length - added;
                         toast(
                           `Added ${what} to ${b.name} › ${c.name}${skipped > 0 && picked.length > 1 ? ` (${skipped} already there)` : ""}`,
@@ -325,10 +339,6 @@ export function IssuesView() {
       )}
     </div>
   );
-}
-
-function issueKey(i: GhIssue) {
-  return `${i.repo}#${i.number}`;
 }
 
 function Checkbox({ indeterminate, ...props }: InputHTMLAttributes<HTMLInputElement> & { indeterminate: boolean }) {

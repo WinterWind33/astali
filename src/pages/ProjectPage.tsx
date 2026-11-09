@@ -39,6 +39,7 @@ import {
   Trash2,
   LayoutTemplate,
   ChevronRight,
+  Eye,
   FolderClosed,
   FolderInput,
   FolderMinus,
@@ -49,6 +50,7 @@ import { useShallow } from "zustand/react/shallow";
 import { ActivityView } from "../components/ActivityView";
 import { BoardArchiveDialog } from "../components/BoardArchiveDialog";
 import { BoardView } from "../components/board/BoardView";
+import { ViewBoard } from "../components/board/ViewBoard";
 import { DecisionsView } from "../components/DecisionsView";
 import { GlossaryView } from "../components/GlossaryView";
 import { NotesView } from "../components/NotesView";
@@ -80,9 +82,10 @@ import {
 } from "../lib/store";
 import { isGlossary } from "../lib/glossary";
 import { isNotes } from "../lib/notes";
+import { isView } from "../lib/viewBoards";
 import { emptyPlan, isPlan, planProgress } from "../lib/plan";
 import { collectTags, decisionList } from "../lib/tags";
-import { colorHex, cx, relativeTime } from "../lib/util";
+import { colorHex, cx, relativeTime, repoKey, repoPath } from "../lib/util";
 
 export function ProjectPage() {
   const entry = useStore((s) => currentProject(s));
@@ -138,7 +141,11 @@ export function ProjectPage() {
     if (newBoard?.name.trim())
       createBoard(
         newBoard.name.trim(),
-        newBoard.kind === "plan" ? emptyPlan() : newBoard.kind === "notes" ? "notes" : undefined,
+        newBoard.kind === "plan"
+          ? emptyPlan()
+          : newBoard.kind === "notes" || newBoard.kind === "view"
+            ? newBoard.kind
+            : undefined,
       );
     setNewBoard(null);
   };
@@ -202,11 +209,19 @@ export function ProjectPage() {
   const boardItem = (b: Board) => {
     const active = view.kind === "board" && view.boardId === b.id;
     const plan = isPlan(b) && b.plan ? planProgress(b.plan) : null;
-    const notes = isNotes(b) ? (b.notes?.length ?? 0) : isGlossary(b) ? (b.terms?.length ?? 0) : null;
+    const notes = isNotes(b)
+      ? (b.notes?.length ?? 0)
+      : isGlossary(b)
+        ? (b.terms?.length ?? 0)
+        : isView(b)
+          ? b.columns.length
+          : null;
     const count = plan ? plan.total - plan.resolved : (notes ?? Object.keys(b.tasks).length);
     const kind = kindOf(b);
-    const what = { kanban: "board", plan: "plan", notes: "notes board", glossary: "glossary" }[kind];
-    const item = { kanban: "task", plan: "item", notes: "note", glossary: "term" }[kind];
+    const what = { kanban: "board", plan: "plan", notes: "notes board", glossary: "glossary", view: "view-only board" }[
+      kind
+    ];
+    const item = { kanban: "task", plan: "item", notes: "note", glossary: "term", view: "column" }[kind];
     return (
       <SortableBoardItem
         key={b.id}
@@ -337,6 +352,12 @@ export function ProjectPage() {
                     icon: <StickyNote size={14} />,
                     onClick: () => setNewBoard({ name: "", kind: "notes" }),
                   },
+                  {
+                    label: "View-only board",
+                    icon: <Eye size={14} />,
+                    title: "A board filled from GitHub and GitLab by rules you set",
+                    onClick: () => setNewBoard({ name: "", kind: "view" }),
+                  },
                   { label: "Plan from Markdown…", icon: <FileUp size={14} />, onClick: () => setImporting(true) },
                   {
                     label: "Board from a template…",
@@ -390,7 +411,13 @@ export function ProjectPage() {
                 autoFocus
                 className="inline-edit-input"
                 placeholder={
-                  newBoard.kind === "plan" ? "Plan name" : newBoard.kind === "notes" ? "Notes board name" : "Board name"
+                  newBoard.kind === "plan"
+                    ? "Plan name"
+                    : newBoard.kind === "notes"
+                      ? "Notes board name"
+                      : newBoard.kind === "view"
+                        ? "View-only board name"
+                        : "Board name"
                 }
                 value={newBoard.name}
                 onChange={(e) => setNewBoard({ ...newBoard, name: e.target.value })}
@@ -464,11 +491,11 @@ export function ProjectPage() {
               </div>
               <div className="sidebar-repos">
                 {project.repos.map((r) => {
-                  const key = `${r.owner}/${r.repo}`;
+                  const key = repoKey(r);
                   const err = issues.repos[key]?.error;
                   return (
-                    <div key={key} className={cx("sidebar-repo", err && "error")} title={err ?? key}>
-                      {key}
+                    <div key={key} className={cx("sidebar-repo", err && "error")} title={err ?? repoPath(key)}>
+                      {repoPath(key)}
                     </div>
                   );
                 })}
@@ -482,6 +509,8 @@ export function ProjectPage() {
       <section className="project-content">
         {view.kind === "board" && openBoard && isNotes(openBoard) ? (
           <NotesView key={view.boardId} boardId={view.boardId} focusNote={view.noteId} />
+        ) : view.kind === "board" && openBoard && isView(openBoard) ? (
+          <ViewBoard key={view.boardId} boardId={view.boardId} />
         ) : view.kind === "board" && openBoard && isPlan(openBoard) ? (
           <PlanView key={view.boardId} boardId={view.boardId} focus={view.stepId} />
         ) : view.kind === "board" ? (
@@ -527,12 +556,14 @@ function BoardIcon({ kind }: { kind: BoardKind }) {
     <StickyNote size={15} />
   ) : kind === "glossary" ? (
     <BookA size={15} />
+  ) : kind === "view" ? (
+    <Eye size={15} />
   ) : (
     <Kanban size={15} />
   );
 }
 
-const BOARD_KIND_RANK: Record<BoardKind, number> = { kanban: 0, plan: 1, notes: 2, glossary: 3 };
+const BOARD_KIND_RANK: Record<BoardKind, number> = { kanban: 0, view: 1, plan: 2, notes: 3, glossary: 4 };
 const kindOf = (b: Board): BoardKind => b.kind ?? "kanban";
 const byName = (a: Board, b: Board) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { BranchPr, GhIssue, GhLabel, GhMilestone, IssueComment, RepoRef } from "./types";
-import { repoKey } from "./util";
+import { repoKey, validPath } from "./util";
 
 const API = "https://api.github.com";
 const MAX_PAGES = 10; // 1000 issues per repo is plenty for a board
@@ -85,13 +85,56 @@ function mapIssue(repo: string, i: Raw): GhIssue {
   };
 }
 
-const repoUrl = (ref: RepoRef) => `${API}/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`;
+/**
+ * The API URL of "owner/repo", refused unless both are names GitHub allows. They come from the vault, which may be
+ * someone else's, and a name like ".." would point the request, and the token, at another endpoint.
+ */
+function repoApi(repo: string): string {
+  const parts = repo.split("/");
+  if (parts.length !== 2 || !validPath(parts)) throw new GitHubError(`Invalid repo '${repo}'`);
+  return `${API}/repos/${repo}`;
+}
+
+const repoUrl = (ref: RepoRef) => repoApi(`${ref.owner}/${ref.repo}`);
 
 /** Read-only: fetches every issue (and PR) of a repository. Never writes to GitHub. */
 export async function fetchRepoIssues(ref: RepoRef, token: string): Promise<GhIssue[]> {
   const key = repoKey(ref);
   const raw = await fetchAllPages(key, `${repoUrl(ref)}/issues?state=all&sort=updated`, token);
   return raw.map((i) => mapIssue(key, i));
+}
+
+/** Most result pages one search reads. */
+const MAX_SEARCH_PAGES = 3;
+
+/**
+ * Read-only: the repository's issues or pull requests found by a search, most recently updated first. Search has
+ * its own, tight rate limit, so each page read takes one from `budget`, and reading stops when none are left.
+ */
+export async function searchRepoIssues(
+  repo: string,
+  query: string,
+  token: string,
+  budget: { left: number },
+): Promise<GhIssue[]> {
+  const out: GhIssue[] = [];
+  for (let page = 1; page <= MAX_SEARCH_PAGES && budget.left > 0; page++) {
+    budget.left--;
+    let res: Response;
+    try {
+      res = await fetch(`${API}/search/issues?q=${encodeURIComponent(query)}&sort=updated&per_page=100&page=${page}`, {
+        headers: apiHeaders(token),
+        cache: "no-cache",
+      });
+    } catch {
+      throw new GitHubError("Network error — are you online?");
+    }
+    if (!res.ok) throw httpError(res, repo);
+    const items = ((await res.json()) as { items: Raw[] }).items;
+    out.push(...items.map((i) => mapIssue(repo, i)));
+    if (items.length < 100) break;
+  }
+  return out;
 }
 
 /** Read-only: every label of a repository, with the ids that stay the same across renames. */
@@ -117,7 +160,7 @@ export async function fetchRepoMilestones(ref: RepoRef, token: string): Promise<
 
 /** Read-only: the comments of an issue (or pull request), oldest first. */
 export async function fetchIssueComments(repo: string, number: number, token: string): Promise<IssueComment[]> {
-  const raw = await fetchAllPages(repo, `${API}/repos/${repo}/issues/${number}/comments`, token);
+  const raw = await fetchAllPages(repo, `${repoApi(repo)}/issues/${number}/comments`, token);
   return raw.map((c) => ({
     id: c.id,
     author: c.user?.login ?? "ghost",
@@ -140,10 +183,16 @@ const etags = new Map<string, string>();
  * "error" when GitHub couldn't be asked (offline, rate-limited, no access).
  */
 export async function repoChanged(ref: RepoRef, token: string): Promise<"changed" | "same" | "error"> {
+  let base: string;
+  try {
+    base = repoUrl(ref);
+  } catch {
+    return "error";
+  }
   const urls = [
-    `${repoUrl(ref)}/issues?state=all&sort=updated&per_page=1`,
-    `${repoUrl(ref)}/labels?per_page=100`,
-    `${repoUrl(ref)}/milestones?state=all&per_page=100`,
+    `${base}/issues?state=all&sort=updated&per_page=1`,
+    `${base}/labels?per_page=100`,
+    `${base}/milestones?state=all&per_page=100`,
   ];
   const results = await Promise.all(
     urls.map(async (url) => {
@@ -168,7 +217,7 @@ export async function repoChanged(ref: RepoRef, token: string): Promise<"changed
 
 /** Read-only: the open pull request whose head is `head` ("owner:branch") in `repo` ("owner/repo"), if any. */
 export async function fetchBranchPr(repo: string, head: string, token: string): Promise<BranchPr | null> {
-  const url = `${API}/repos/${repo}/pulls?state=open&per_page=1&head=${encodeURIComponent(head)}`;
+  const url = `${repoApi(repo)}/pulls?state=open&per_page=1&head=${encodeURIComponent(head)}`;
   const res = await fetch(url, { headers: apiHeaders(token) });
   if (!res.ok) throw new GitHubError(`GitHub responded ${res.status} for ${repo}`, res.status);
   const [pr] = (await res.json()) as Raw[];

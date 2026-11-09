@@ -374,25 +374,50 @@ export function IssueStateIcon({
   return <CircleDot size={size} className="issue-icon open" />;
 }
 
+/** A GitLab scoped label's two parts. Like GitLab, splits at the last "::", so scopes can nest. */
+export function scopedLabel(name: string) {
+  const at = name.lastIndexOf("::");
+  return at > 0 && at < name.length - 2 ? { scope: name.slice(0, at), value: name.slice(at + 2) } : null;
+}
+
 /**
  * A label of a GitHub or GitLab repository, as a bordered pill with the provider's mark so it
  * never passes for one of the project's own tags. With `repo`, clicking it lists everything
  * carrying the label in the Tags view.
  */
-export function GhLabelChip({ label, repo }: { label: GhLabel; repo?: string }) {
+export function GhLabelChip({
+  label,
+  repo,
+  source,
+}: {
+  label: GhLabel;
+  repo?: string;
+  /** The label's repository, when the chip shouldn't link anywhere (`repo` makes it clickable). */
+  source?: string;
+}) {
   const style = { "--c": `#${label.color}` } as React.CSSProperties;
-  const title = `${providerName(repo ?? "")} label${repo ? ` of ${repoPath(repo)}` : ""}${label.description ? ` — ${label.description}` : ""}`;
+  const from = repo ?? source ?? "";
+  const title = `${providerName(from)} label${from ? ` of ${repoPath(from)}` : ""}${label.description ? ` — ${label.description}` : ""}`;
+  const scoped = isGitlab(from) ? scopedLabel(label.name) : null;
+  const text = scoped ? (
+    <>
+      {scoped.scope}
+      <span className="gh-label-value">{scoped.value}</span>
+    </>
+  ) : (
+    label.name
+  );
   if (!repo)
     return (
-      <span className="gh-label" style={style} title={title}>
-        <Github size={9} className="gh-label-mark" />
-        {label.name}
+      <span className={cx("gh-label", scoped && "scoped")} style={style} title={title}>
+        <ProviderMark repo={from} size={9} className="gh-label-mark" />
+        {text}
       </span>
     );
   return (
     <button
       type="button"
-      className="gh-label clickable"
+      className={cx("gh-label clickable", scoped && "scoped")}
       style={style}
       title={`${title}
 Click to see everything labeled “${label.name}”`}
@@ -403,7 +428,7 @@ Click to see everything labeled “${label.name}”`}
       }}
     >
       <ProviderMark repo={repo} size={9} className="gh-label-mark" />
-      {label.name}
+      {text}
     </button>
   );
 }

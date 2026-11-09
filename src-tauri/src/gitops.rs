@@ -359,6 +359,23 @@ pub fn sync(vault: &Path, message: &str) -> Result<SyncResult, String> {
     Ok(r)
 }
 
+/// Whether the current branch has commits its upstream lacks.
+fn unpushed(vault: &Path) -> bool {
+    run(vault, &["rev-list", "--count", "@{u}..HEAD"]).is_ok_and(|n| n.trim() != "0")
+}
+
+/// The sync run as the app closes: only when the vault has something to send, and with nobody left
+/// to ask, a pull that conflicts is undone so the repository isn't left mid-merge.
+pub fn sync_on_close(vault: &Path, message: &str) -> Result<(), String> {
+    if !commit(vault, message, false)? && !unpushed(vault) {
+        return Ok(());
+    }
+    if !sync(vault, message)?.conflicts.is_empty() {
+        abort_merge(vault)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,6 +480,66 @@ refs/remotes/fork/topic
         assert!(commit(&vault, "Everything", true).unwrap());
         assert!(g(&dir, &["status", "--porcelain"]).trim().is_empty());
         assert!(commit(&vault, "  ", true).is_err());
+        fs::remove_dir_all(dir).ok();
+    }
+
+    /// Two clones of one bare remote, each holding the vault in `kb/`.
+    fn two_clones(dir: &Path) -> (PathBuf, PathBuf) {
+        let (seed, bare, a, b) = (dir.join("seed"), dir.join("r.git"), dir.join("a"), dir.join("b"));
+        fs::create_dir_all(&seed).unwrap();
+        vault_repo(&seed);
+        g(dir, &["clone", "-q", "--bare", "seed", "r.git"]);
+        for c in [&a, &b] {
+            g(dir, &["clone", "-q", bare.to_str().unwrap(), c.to_str().unwrap()]);
+            g(c, &["config", "user.name", "Test"]);
+            g(c, &["config", "user.email", "test@example.com"]);
+            g(c, &["config", "commit.gpgsign", "false"]);
+        }
+        (a, b)
+    }
+
+    #[test]
+    fn close_sync_sends_changes_and_skips_when_there_are_none() {
+        if !git_ok() {
+            return;
+        }
+        let dir = tmp("close");
+        let (a, b) = two_clones(&dir);
+        let head = |d: &Path| g(d, &["rev-parse", "HEAD"]);
+        let before = head(&a);
+        sync_on_close(&a.join("kb"), "Close").unwrap();
+        assert_eq!(head(&a), before);
+
+        write(&a.join("kb/proj/boards/b.json"), "{}\n");
+        sync_on_close(&a.join("kb"), "Close").unwrap();
+        g(&b, &["pull", "-q"]);
+        assert!(b.join("kb/proj/boards/b.json").is_file());
+
+        // Nothing to send: a newer commit on the remote is left for the next open.
+        write(&a.join("kb/proj/boards/c.json"), "{}\n");
+        commit(&a.join("kb"), "More", false).unwrap();
+        push(&a.join("kb")).unwrap();
+        sync_on_close(&b.join("kb"), "Close").unwrap();
+        assert!(!b.join("kb/proj/boards/c.json").exists());
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn close_sync_undoes_a_conflicting_pull() {
+        if !git_ok() {
+            return;
+        }
+        let dir = tmp("closeconflict");
+        let (a, b) = two_clones(&dir);
+        write(&a.join("kb/proj/project.json"), "{\"name\":\"A\"}\n");
+        sync_on_close(&a.join("kb"), "Close").unwrap();
+        write(&b.join("kb/proj/project.json"), "{\"name\":\"B\"}\n");
+        sync_on_close(&b.join("kb"), "Close").unwrap();
+        assert!(!merging(&b).unwrap());
+        assert!(conflicts(&b.join("kb")).unwrap().is_empty());
+        // The local change stays committed, ready for the next sync.
+        assert_eq!(read(b.join("kb/proj/project.json")).unwrap(), "{\"name\":\"B\"}\n");
+        assert!(unpushed(&b.join("kb")));
         fs::remove_dir_all(dir).ok();
     }
 

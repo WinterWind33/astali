@@ -83,7 +83,7 @@ export const labelUrl = (repo: string, name: string) =>
     : `${repoUrl(repo)}/labels/${encodeURIComponent(name)}`;
 
 const NAME = /^[\w.-]+$/;
-const validPath = (segments: string[]) => segments.every((s) => NAME.test(s) && s !== "." && s !== "..");
+export const validPath = (segments: string[]) => segments.every((s) => NAME.test(s) && s !== "." && s !== "..");
 
 /**
  * Accepts GitHub's "owner/repo", "github.com/owner/repo" and full URLs, and GitLab's "gitlab:group/sub/project"

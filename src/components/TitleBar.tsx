@@ -22,7 +22,6 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { flushWrites } from "../lib/fs";
 import {
   closeVault,
   currentProject,
@@ -207,14 +206,7 @@ This folder can't be found. It may have been renamed, moved or deleted.`
           <button onClick={() => win.toggleMaximize()} aria-label="Maximize">
             {maximized ? <Copy size={13} style={{ transform: "scaleX(-1)" }} /> : <Square size={12} />}
           </button>
-          <button
-            className="close"
-            onClick={async () => {
-              await flushWrites().catch(() => {});
-              win.close();
-            }}
-            aria-label="Close"
-          >
+          <button className="close" onClick={() => win.close()} aria-label="Close">
             <X size={17} />
           </button>
         </div>

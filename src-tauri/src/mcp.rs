@@ -191,6 +191,7 @@ fn handle(ctx: &Ctx, msg: &Value) -> Option<Value> {
                      counts them as `archived`, but search_tasks still finds them. A done column marked `autoArchive` archives \
                      every task moved into it. A whole board can be archived too (archive_board, restore_board): until it is \
                      restored, no tool reads or changes it, and list_boards names it under `archivedBoards`. \
+                     A whole project can be archived the same way (archive_project, restore_project; list_projects names it under `archivedProjects`). \
                      Decisions record why the code is the way it is: short notes numbered D-1, D-2… per project, each a \
                      title and a `why` (with an optional rejected alternative) kept under the project's character limit, \
                      plus `about`: the classes, functions or paths they explain. Before reworking code that looks odd, \
@@ -278,10 +279,24 @@ fn tools() -> Vec<Value> {
     let position =
         json!({ "type": "integer", "minimum": 0, "description": "0-based index; omit to append at the end" });
     let issue = s("Issue as \"owner/repo#123\" (GitHub), \"gitlab:group/project#12\" (GitLab) or an issue URL; empty string to unlink");
+    let merge_request = s("Merge or pull request as \"gitlab:group/project!12\" (GitLab), \"owner/repo#123\" (GitHub) or its URL; empty string to unlink");
     let epic = s(
         "GitLab epic as \"group/sub&5\", an epic URL, or the title of an epic list_epics shows; empty string to unlink",
     );
-    let milestone = s("GitHub milestone as \"owner/repo#3\", a milestone URL, or the title of a milestone list_milestones shows; empty string to unlink");
+    let milestone = s("Milestone as \"owner/repo#3\" (GitHub), \"gitlab:group/project#3\" (GitLab), a milestone URL, or the title of a milestone list_milestones shows; empty string to unlink");
+    let more_links = json!({
+        "more_issues": json!({ "type": "array", "items": { "type": "string" }, "description": "Issues to link after `issue`, same forms; replaces the earlier ones, [] clears" }),
+        "more_merge_requests": json!({ "type": "array", "items": { "type": "string" }, "description": "Merge or pull requests to link after `merge_request`, same forms; replaces the earlier ones, [] clears" }),
+        "more_milestones": json!({ "type": "array", "items": { "type": "string" }, "description": "Milestones after `milestone`, same forms, at most one per repository (the first wins); replaces the earlier ones, [] clears" }),
+        "more_epics": json!({ "type": "array", "items": { "type": "string" }, "description": "Epics after `epic`, same forms, at most one per group (the first wins); replaces the earlier ones, [] clears" }),
+    });
+    let with_more = |mut props: Value| {
+        props
+            .as_object_mut()
+            .unwrap()
+            .extend(more_links.as_object().unwrap().clone());
+        props
+    };
     let due = s("Due date YYYY-MM-DD, or empty string to clear");
     let decision = s("Decision as \"D-12\", its number, its id, or its exact title");
     let step = s("Step id, its number (\"3\"), or its exact title");
@@ -322,7 +337,8 @@ fn tools() -> Vec<Value> {
                     "seasonalThemes": { "type": "boolean", "description": "Dress the app up for Halloween, Christmas and Easter" },
                     "checkForUpdates": { "type": "boolean", "description": "Ask GitHub for a newer version when the app starts" },
                     "autoSync": { "type": "integer", "minimum": 0, "maximum": crate::settings::AUTO_SYNC_MAX,
-                                  "description": "Sync this vault after this many changes; 0 turns automatic sync off" } }),
+                                  "description": "Sync this vault after this many changes; 0 turns automatic sync off" },
+                    "syncOnClose": { "type": "boolean", "description": "Sync this vault when the app closes, with or without automatic sync (until set, it follows automatic sync)" } }),
             &[], "write"),
         tool("list_projects", "List all projects in the vault with board counts and linked GitHub repos.", json!({}), &[], "read"),
         tool("create_project", "Create a project. It starts with one board named 'Main' with To Do / Doing / Done columns.",
@@ -339,8 +355,12 @@ fn tools() -> Vec<Value> {
                     "tag_colors": { "type": "object", "additionalProperties": { "type": "string" },
                         "description": format!("Colors of task tags, as {{ tag: color }}: a preset ({}) or a hex color; an empty string resets a tag to its automatic color. Merged into the existing colors.", COLORS.join(", ")) } }),
             &["project"], "write"),
-        tool("delete_project", "Delete a project folder and all its boards (recorded in the history, so it can be restored with undo).",
+        tool("delete_project", "Delete a project folder and all its boards (recorded in the history, so it can be restored with undo for 30 days; after that it is permanently deleted).",
             json!({ "project": project, "confirm": { "type": "boolean", "description": "Must be true" } }), &["project", "confirm"], "delete"),
+        tool("archive_project", "Put a whole project away, with its boards and decisions. Until restore_project brings it back, no tool reads or changes it, and list_projects names it under `archivedProjects`.",
+            json!({ "project": project }), &["project"], "write"),
+        tool("restore_project", "Bring an archived project back.",
+            json!({ "project": s("Archived project id, folder name, or name (case-insensitive)") }), &["project"], "write"),
 
         tool("list_boards", "List the boards of a project with per-column task counts.", json!({ "project": project }), &["project"], "read"),
         tool("get_board", "Get a board with its columns and tasks in display order. The done column lists only its first `done_limit` tasks, and says how many more it holds in `moreTasks`: use search_tasks with `column` to look through them.",
@@ -395,19 +415,19 @@ fn tools() -> Vec<Value> {
             json!({ "project": project, "board": board, "column": column, "move_tasks_to": s("Column to receive the tasks") }),
             &["project", "board", "column"], "delete"),
 
-        tool("create_task", "Create a task (card). Defaults to the first column. Can link a GitHub or GitLab issue, and a GitLab epic.",
-            json!({ "project": project, "board": board, "column": column, "title": s("Title"),
+        tool("create_task", "Create a task (card). Defaults to the first column. Can link GitHub or GitLab issues, merge or pull requests, milestones and GitLab epics.",
+            with_more(json!({ "project": project, "board": board, "column": column, "title": s("Title"),
                     "description": s("Markdown description"), "priority": priority, "labels": labels,
-                    "due_date": due, "issue": issue, "milestone": milestone, "epic": epic.clone(), "color": task_color.clone(),
+                    "due_date": due, "issue": issue, "merge_request": merge_request.clone(), "milestone": milestone, "epic": epic.clone(), "color": task_color.clone(),
                     "checklist": { "type": "array", "items": { "type": "string" }, "description": "Checklist item texts" },
-                    "position": position }),
+                    "position": position })),
             &["project", "board", "title"], "write"),
-        tool("update_task", "Update fields of a task. Only provided fields change. checklist replaces the whole list.",
-            json!({ "project": project, "board": board, "task": task, "title": s("Title"), "description": s("Markdown description"),
-                    "priority": priority, "labels": labels, "due_date": due, "issue": issue, "milestone": milestone,
+        tool("update_task", "Update fields of a task. Only provided fields change. checklist replaces the whole list. An empty issue, merge_request, milestone or epic unlinks all of that kind.",
+            with_more(json!({ "project": project, "board": board, "task": task, "title": s("Title"), "description": s("Markdown description"),
+                    "priority": priority, "labels": labels, "due_date": due, "issue": issue, "merge_request": merge_request, "milestone": milestone,
                     "epic": epic, "color": task_color,
                     "checklist": { "type": "array", "items": { "type": "object",
-                        "properties": { "text": { "type": "string" }, "done": { "type": "boolean" } }, "required": ["text"] } } }),
+                        "properties": { "text": { "type": "string" }, "done": { "type": "boolean" } }, "required": ["text"] } } })),
             &["project", "board", "task"], "write"),
         tool("move_task",
             "Move a task to another column and/or position, on the same board or, with `to_board`, on another kanban board of the project (`column` is then that board's). A moved task keeps its id and links, and links to it follow it.",
@@ -562,12 +582,12 @@ fn tools() -> Vec<Value> {
                     "resolved": { "type": "boolean" }, "decision": s("\"D-12\", or empty string to clear") }),
             &["project", "board", "question"], "write"),
 
-        tool("sync_issues", "Fetch issues and labels from the project's GitHub repos and gitlab.com projects into the local cache, with GitHub milestones and GitLab epics (read-only on both).",
+        tool("sync_issues", "Fetch issues and labels from the project's GitHub repos and gitlab.com projects into the local cache, with milestones and GitLab epics (read-only on both).",
             json!({ "project": project }), &["project"], "write"),
         tool("list_epics", "List the cached GitLab epics of the groups of a project's gitlab.com projects (sync_issues refreshes them; only Premium and Ultimate groups have epics), with the tasks linked to each.",
             json!({ "project": project, "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open" } }),
             &["project"], "read"),
-        tool("list_milestones", "List the cached GitHub milestones of a project's repos (sync_issues refreshes them), with their progress and the tasks linked to each.",
+        tool("list_milestones", "List the cached milestones of a project's repos (sync_issues refreshes them), with their progress and the tasks linked to each.",
             json!({ "project": project, "state": { "type": "string", "enum": ["open", "closed", "all"] } }),
             &["project"], "read"),
         tool("list_issues", "List cached GitHub and GitLab issues of a project and where each is linked on boards.",
@@ -699,6 +719,25 @@ fn parse_issue(s: &str) -> R<Value> {
     ))
 }
 
+/// The `merge_request` argument: `gitlab:group/project!12`, `owner/repo#123` or either's URL; "" unlinks.
+fn arg_merge_request(a: &Value) -> R<Option<Value>> {
+    let Some(q) = arg_str(a, "merge_request").map(str::trim) else {
+        return Ok(None);
+    };
+    if q.is_empty() {
+        return Ok(Some(Value::Null));
+    }
+    if let Some((repo, n)) = crate::gl::parse_merge_request(q) {
+        return Ok(Some(json!({ "repo": repo, "number": n })));
+    }
+    if q.contains("gitlab") {
+        return Err(format!(
+            "Cannot parse merge request '{q}'. Use gitlab:group/project!12 or a merge request URL."
+        ));
+    }
+    parse_issue(q).map(Some)
+}
+
 /// The `milestone` argument: `owner/repo#3`, a milestone URL, or the title of a cached milestone of
 /// the project; "" unlinks.
 fn arg_milestone(a: &Value, p: &Proj) -> R<Option<Value>> {
@@ -716,6 +755,18 @@ fn arg_milestone(a: &Value, p: &Proj) -> R<Option<Value>> {
                     json!({ "repo": format!("{}/{}", parts[0], parts[1]), "number": n }),
                 ));
             }
+        }
+    }
+    if let Some((path, tail)) = q
+        .split("gitlab.com/")
+        .nth(1)
+        .and_then(|rest| rest.split_once("/-/milestones/"))
+    {
+        let number = tail.split(['/', '?', '#']).next().and_then(|n| n.parse::<u64>().ok());
+        if let (Ok(path), Some(n)) = (crate::gl::project_path(path), number) {
+            return Ok(Some(
+                json!({ "repo": format!("{}{path}", crate::gl::PREFIX), "number": n }),
+            ));
         }
     }
     if let Ok(v) = parse_issue(q) {
@@ -787,6 +838,79 @@ fn epic_ref(e: &Value) -> String {
     format!("{}&{}", s(e, "group").trim_start_matches(crate::gl::PREFIX), e["iid"])
 }
 
+/// A task's links of each kind: the first's field, the others' field, and the field only one link
+/// of that kind may share ("" for none). The first stays in its own field for older versions (D-24).
+const TASK_LINKS: [(&str, &str, &str); 4] = [
+    ("issue", "moreIssues", ""),
+    ("mergeRequest", "moreMergeRequests", ""),
+    ("milestone", "moreMilestones", "repo"),
+    ("epic", "moreEpics", "group"),
+];
+
+/// All of a task's links of one kind, the first one first.
+fn task_refs<'a>(t: &'a Value, one: &str, more: &str) -> Vec<&'a Value> {
+    std::iter::once(&t[one])
+        .chain(t[more].as_array().into_iter().flatten())
+        .filter(|v| v.is_object())
+        .collect()
+}
+
+/// Drops repeated links and those a kind allows once per repository or group, and moves the next
+/// link up when the first is gone.
+fn tidy_task_links(t: &mut Value) {
+    for (one, more, unique) in TASK_LINKS {
+        let mut seen = HashSet::new();
+        let list: Vec<Value> = task_refs(t, one, more)
+            .into_iter()
+            .filter(|r| seen.insert(if unique.is_empty() { r.to_string() } else { s(r, unique) }))
+            .cloned()
+            .collect();
+        let Some(o) = t.as_object_mut() else { return };
+        o.remove(more);
+        match list.split_first() {
+            Some((first, rest)) => {
+                o.insert(one.into(), first.clone());
+                if !rest.is_empty() {
+                    o.insert(more.into(), json!(rest));
+                }
+            }
+            None if one == "issue" => {
+                o.insert(one.into(), Value::Null);
+            }
+            None => {
+                o.remove(one);
+            }
+        }
+    }
+}
+
+/// The `more_*` arguments that were given, as (task field, parsed links).
+fn arg_more_links(a: &Value, p: &Proj) -> R<Vec<(&'static str, Vec<Value>)>> {
+    let list = |key: &str, single: &str, parse: &dyn Fn(&Value) -> R<Option<Value>>| -> R<Option<Vec<Value>>> {
+        let Some(items) = a.get(key).and_then(Value::as_array) else {
+            return Ok(None);
+        };
+        let mut out = vec![];
+        for item in items {
+            out.extend(parse(&json!({ single: item }))?.filter(Value::is_object));
+        }
+        Ok(Some(out))
+    };
+    let kinds = [
+        ("moreIssues", list("more_issues", "issue", &arg_issue)?),
+        (
+            "moreMergeRequests",
+            list("more_merge_requests", "merge_request", &arg_merge_request)?,
+        ),
+        (
+            "moreMilestones",
+            list("more_milestones", "milestone", &|v| arg_milestone(v, p))?,
+        ),
+        ("moreEpics", list("more_epics", "epic", &|v| arg_epic(v, p))?),
+    ];
+    Ok(kinds.into_iter().filter_map(|(k, l)| l.map(|l| (k, l))).collect())
+}
+
 fn arg_issue(a: &Value) -> R<Option<Value>> {
     match arg_str(a, "issue") {
         None => Ok(None),
@@ -854,7 +978,31 @@ struct BoardFile {
     data: Value,
 }
 
+/// Whether the project is archived: out of reach of every tool but restore_project.
+fn is_archived_project(p: &Value) -> bool {
+    p["archivedAt"].is_string()
+}
+
 fn load_projects(ctx: &Ctx) -> R<Vec<Proj>> {
+    Ok(load_every_project(ctx)?
+        .into_iter()
+        .filter(|p| !is_archived_project(&p.data))
+        .collect())
+}
+
+fn project_is(p: &Proj, q: &str) -> bool {
+    s(&p.data, "id") == q || eq_ci(&p.dir, q) || eq_ci(&s(&p.data, "name"), q)
+}
+
+fn find_archived_project(ctx: &Ctx, q: &str) -> R<Proj> {
+    load_every_project(ctx)?
+        .into_iter()
+        .find(|p| is_archived_project(&p.data) && project_is(p, q))
+        .ok_or_else(|| format!("No archived project '{q}'"))
+}
+
+/// Every project of the vault, archived ones too.
+fn load_every_project(ctx: &Ctx) -> R<Vec<Proj>> {
     let mut out = vec![];
     for e in std::fs::read_dir(ctx.vault()?).map_err(|e| e.to_string())? {
         let e = e.map_err(|e| e.to_string())?;
@@ -873,9 +1021,16 @@ fn load_projects(ctx: &Ctx) -> R<Vec<Proj>> {
 fn find_project(ctx: &Ctx, q: &str) -> R<Proj> {
     let all = load_projects(ctx)?;
     let names: Vec<String> = all.iter().map(|p| s(&p.data, "name")).collect();
-    all.into_iter()
-        .find(|p| s(&p.data, "id") == q || eq_ci(&p.dir, q) || eq_ci(&s(&p.data, "name"), q))
-        .ok_or_else(|| format!("Project '{q}' not found. Available: {}", list_or_none(&names)))
+    if let Some(p) = all.into_iter().find(|p| project_is(p, q)) {
+        return Ok(p);
+    }
+    if let Ok(p) = find_archived_project(ctx, q) {
+        return Err(format!(
+            "Project '{}' is archived; bring it back with restore_project first",
+            s(&p.data, "name")
+        ));
+    }
+    Err(format!("Project '{q}' not found. Available: {}", list_or_none(&names)))
 }
 
 fn s(v: &Value, k: &str) -> String {
@@ -965,6 +1120,10 @@ fn board_from_template(t: &Value, name: &str) -> Value {
             o.remove("links");
             o.remove("milestone");
             o.remove("epic");
+            o.remove("mergeRequest");
+            for (_, more, _) in TASK_LINKS {
+                o.remove(more);
+            }
         }
         task["id"] = json!(new);
         task["issue"] = Value::Null;
@@ -1117,6 +1276,23 @@ fn is_glossary(b: &Value) -> bool {
     b["kind"] == "glossary"
 }
 
+fn is_view(b: &Value) -> bool {
+    b["kind"] == "view"
+}
+
+/// A view board as an agent sees it: its rules. Its cards are computed by the app from the issue cache.
+fn view_board(b: &Value) -> Value {
+    let columns: Vec<Value> = b["columns"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| json!({ "id": c["id"], "name": c["name"], "rules": c["source"]["rules"] }))
+        .collect();
+    json!({ "id": b["id"], "name": b["name"], "kind": "view", "description": b["description"], "rules": b["viewRules"],
+            "columns": columns,
+            "note": "A view-only board: the app computes its cards from these rules. Use list_issues to browse the same issues." })
+}
+
 /// Refuses plan and notes boards where only kanban boards make sense.
 fn kanban(b: &Value) -> R<()> {
     if is_notes(b) {
@@ -1131,6 +1307,12 @@ fn kanban(b: &Value) -> R<()> {
     if is_glossary(b) {
         return Err(format!(
             "'{}' is a glossary: it holds terms and their definitions, not columns and tasks. Read it with get_board.",
+            s(b, "name")
+        ));
+    }
+    if is_view(b) {
+        return Err(format!(
+            "'{}' is a view-only board: its cards come from GitHub and GitLab and it can't hold tasks. Read its rules with get_board.",
             s(b, "name")
         ));
     }
@@ -1204,9 +1386,16 @@ fn finish_closed_issue_tasks(b: &mut Value, cache: &Value, prev: Option<&Value>)
             continue;
         }
         for id in str_list(&c["taskIds"]) {
-            let issue = &b["tasks"][&id]["issue"];
-            let closed = cached_issue_state(cache, issue).as_deref() == Some("closed");
-            let was_open = prev.is_none_or(|p| cached_issue_state(p, issue).as_deref() == Some("open"));
+            let issues = task_refs(&b["tasks"][&id], "issue", "moreIssues");
+            let closed = !issues.is_empty()
+                && issues
+                    .iter()
+                    .all(|i| cached_issue_state(cache, i).as_deref() == Some("closed"));
+            let was_open = prev.is_none_or(|p| {
+                issues
+                    .iter()
+                    .any(|i| cached_issue_state(p, i).as_deref() == Some("open"))
+            });
             if closed && was_open {
                 ids.push(id);
             }
@@ -1460,6 +1649,11 @@ fn save_project(ctx: &Ctx, p: &mut Proj) -> R<()> {
 }
 
 fn board_summary(b: &Value) -> Value {
+    if is_view(b) {
+        let n = b["columns"].as_array().map(Vec::len).unwrap_or(0);
+        return json!({ "id": b["id"], "name": b["name"], "kind": "view", "description": b["description"], "columns": n,
+                       "updatedAt": b["updatedAt"] });
+    }
     if is_glossary(b) {
         let n = b["terms"].as_array().map(Vec::len).unwrap_or(0);
         return json!({ "id": b["id"], "name": b["name"], "kind": "glossary", "description": b["description"], "terms": n,
@@ -1517,6 +1711,9 @@ fn task_view(
 ) -> Value {
     let mut v = json!({ "id": t["id"], "title": t["title"], "priority": t["priority"], "labels": t["labels"],
                         "dueDate": t["dueDate"], "issue": t["issue"] });
+    if t["mergeRequest"].is_object() {
+        v["mergeRequest"] = t["mergeRequest"].clone();
+    }
     if t["milestone"].is_object() {
         v["milestone"] = json!(format!("{}#{}", s(&t["milestone"], "repo"), t["milestone"]["number"]));
     }
@@ -1525,6 +1722,19 @@ fn task_view(
     }
     if t["epic"].is_object() {
         v["epic"] = json!(epic_ref(&t["epic"]));
+    }
+    for k in ["moreIssues", "moreMergeRequests"] {
+        if t[k].is_array() {
+            v[k] = t[k].clone();
+        }
+    }
+    let refs =
+        |k: &str, f: &dyn Fn(&Value) -> String| json!(t[k].as_array().into_iter().flatten().map(f).collect::<Vec<_>>());
+    if t["moreMilestones"].is_array() {
+        v["moreMilestones"] = refs("moreMilestones", &|m| format!("{}#{}", s(m, "repo"), m["number"]));
+    }
+    if t["moreEpics"].is_array() {
+        v["moreEpics"] = refs("moreEpics", &epic_ref);
     }
     if !links_of(t).is_empty() || targets.contains(&(s(board, "id"), s(t, "id"))) {
         let (blocks, blocked_by, relates) = task_links(boards, &s(board, "id"), &s(t, "id"));
@@ -1997,6 +2207,8 @@ fn search_project(p: &Proj, tokens: &[String], out: &mut Vec<(u32, Value)>) -> R
             "notes"
         } else if is_glossary(b) {
             "glossary"
+        } else if is_view(b) {
+            "view"
         } else {
             "kanban"
         };
@@ -2109,6 +2321,8 @@ fn plan_board(p: &Proj, q: &str) -> R<BoardFile> {
             "a notes board"
         } else if is_glossary(&b.data) {
             "a glossary"
+        } else if is_view(&b.data) {
+            "a view-only board"
         } else {
             "a kanban board"
         };
@@ -2516,8 +2730,8 @@ fn issue_links(p: &Proj) -> R<HashMap<String, Vec<String>>> {
         for c in b.data["columns"].as_array().cloned().unwrap_or_default() {
             for id in c["taskIds"].as_array().cloned().unwrap_or_default() {
                 if let Some(t) = id.as_str().and_then(|id| tasks.get(id)) {
-                    if t["issue"].is_object() {
-                        let k = format!("{}#{}", s(&t["issue"], "repo"), t["issue"]["number"]);
+                    for issue in task_refs(t, "issue", "moreIssues") {
+                        let k = format!("{}#{}", s(issue, "repo"), issue["number"]);
                         links.entry(k).or_default().push(format!(
                             "{} / {} (task {})",
                             s(&b.data, "name"),
@@ -2530,6 +2744,42 @@ fn issue_links(p: &Proj) -> R<HashMap<String, Vec<String>>> {
         }
     }
     Ok(links)
+}
+
+/// The numbers of a repository's issues and merge requests that the project's tasks link to.
+fn linked_numbers(p: &Proj, repo: &str) -> R<(Vec<u64>, Vec<u64>)> {
+    let (mut issues, mut merge_requests) = (vec![], vec![]);
+    for b in load_boards(p)? {
+        for t in b.data["tasks"].as_object().into_iter().flat_map(|o| o.values()) {
+            for r in task_refs(t, "issue", "moreIssues") {
+                if s(r, "repo") == repo {
+                    issues.extend(r["number"].as_u64());
+                }
+            }
+            for r in task_refs(t, "mergeRequest", "moreMergeRequests") {
+                if s(r, "repo") == repo {
+                    merge_requests.extend(r["number"].as_u64());
+                }
+            }
+        }
+    }
+    Ok((issues, merge_requests))
+}
+
+/// Fetches a GitLab issue the sync's capped list stopped before and adds it to the cache. `None` for
+/// GitHub's, for a project that isn't cached, and for one GitLab can't find.
+fn fetch_uncached_issue(p: &Proj, cache: &mut Value, iref: &Value) -> Option<Value> {
+    let repo = s(iref, "repo");
+    let path = repo.strip_prefix(crate::gl::PREFIX)?;
+    let (_, rc) = cache["repos"]
+        .as_object_mut()?
+        .iter_mut()
+        .find(|(k, _)| eq_ci(k, &repo))?;
+    let token = vaultfs::gitlab_token_from_config();
+    let issue = crate::gl::fetch_item(path, iref["number"].as_u64()?, false, token.as_deref()).ok()?;
+    rc["issues"].as_array_mut()?.push(issue.clone());
+    vaultfs::write_json(&issue_cache_path(p), cache).ok()?;
+    Some(issue)
 }
 
 /// Cached issues matching the list_issues filters (`state`, `query`, `repo`, `include_prs`), as (repo key, issue).
@@ -2681,10 +2931,17 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let name = vaultfs::read_json(&vault.join(".astali").join("vault.json"))
                 .ok()
                 .and_then(|m| m["name"].as_str().map(str::to_string));
-            Ok(
-                json!({ "vault": vault.to_string_lossy(), "vaultName": name, "vaultSource": ctx.source.get().describe(),
-                       "git": git_view(&vault), "projects": out }),
-            )
+            let mut result = json!({ "vault": vault.to_string_lossy(), "vaultName": name, "vaultSource": ctx.source.get().describe(),
+                                     "git": git_view(&vault), "projects": out });
+            let archived: Vec<Value> = load_every_project(ctx)?
+                .iter()
+                .filter(|p| is_archived_project(&p.data))
+                .map(|p| json!({ "id": p.data["id"], "name": p.data["name"], "archivedAt": p.data["archivedAt"] }))
+                .collect();
+            if !archived.is_empty() {
+                result["archivedProjects"] = json!(archived);
+            }
+            Ok(result)
         }
         "create_project" => {
             let name = req_str(a, "name")?.trim().to_string();
@@ -2800,6 +3057,20 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             crate::gitignore::sync_if_enabled(&ctx.vault()?);
             Ok(json!(format!("Deleted project '{}'", s(&p.data, "name"))))
         }
+        "archive_project" => {
+            let mut p = find_project(ctx, req_str(a, "project")?)?;
+            p.data["archivedAt"] = json!(now_iso());
+            save_project(ctx, &mut p)?;
+            Ok(json!(format!("Archived project '{}'", s(&p.data, "name"))))
+        }
+        "restore_project" => {
+            let mut p = find_archived_project(ctx, req_str(a, "project")?)?;
+            if let Some(o) = p.data.as_object_mut() {
+                o.remove("archivedAt");
+            }
+            save_project(ctx, &mut p)?;
+            Ok(json!(format!("Restored project '{}'", s(&p.data, "name"))))
+        }
 
         "list_boards" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
@@ -2847,6 +3118,9 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             }
             if is_glossary(&b.data) {
                 return Ok(glossary_view(&b.data));
+            }
+            if is_view(&b.data) {
+                return Ok(view_board(&b.data));
             }
             let with_desc = a.get("include_descriptions").and_then(Value::as_bool).unwrap_or(true);
             let done_limit = match a.get("done_limit").and_then(Value::as_u64).unwrap_or(DONE_LIMIT) {
@@ -3235,6 +3509,9 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 "checklist": checklist, "createdAt": t, "updatedAt": t,
             });
             let mut task = task;
+            if let Some(m) = arg_merge_request(a)?.filter(Value::is_object) {
+                task["mergeRequest"] = m;
+            }
             if let Some(m) = arg_milestone(a, &p)?.filter(Value::is_object) {
                 task["milestone"] = m;
             }
@@ -3244,6 +3521,10 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             if let Some(e) = arg_epic(a, &p)?.filter(Value::is_object) {
                 task["epic"] = e;
             }
+            for (k, l) in arg_more_links(a, &p)? {
+                task[k] = json!(l);
+            }
+            tidy_task_links(&mut task);
             let id = s(&task, "id");
             tasks_mut(&mut b.data).insert(id.clone(), task.clone());
             let col = &mut columns_mut(&mut b.data)[ci];
@@ -3266,10 +3547,20 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let priority = arg_priority(a)?;
             let due = arg_due(a)?;
             let issue = arg_issue(a)?;
+            let merge_request = arg_merge_request(a)?;
             let milestone = arg_milestone(a, &p)?;
             let color = arg_note_color(a)?;
             let epic = arg_epic(a, &p)?;
+            let more_links = arg_more_links(a, &p)?;
             let t = tasks_mut(&mut b.data).get_mut(&id).unwrap();
+            // An empty first link unlinks that whole kind.
+            for ((_, more, _), arg) in TASK_LINKS.iter().zip([&issue, &merge_request, &milestone, &epic]) {
+                if matches!(arg, Some(Value::Null)) {
+                    if let Some(o) = t.as_object_mut() {
+                        o.remove(*more);
+                    }
+                }
+            }
             if let Some(v) = arg_str(a, "title").filter(|v| !v.trim().is_empty()) {
                 t["title"] = json!(v.trim());
             }
@@ -3287,6 +3578,15 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             }
             if let Some(v) = issue {
                 t["issue"] = v;
+            }
+            match merge_request {
+                Some(Value::Null) => {
+                    if let Some(o) = t.as_object_mut() {
+                        o.remove("mergeRequest");
+                    }
+                }
+                Some(m) => t["mergeRequest"] = m,
+                None => {}
             }
             match milestone {
                 Some(Value::Null) => {
@@ -3316,6 +3616,10 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 Some(e) => t["epic"] = e,
                 None => {}
             }
+            for (k, l) in more_links {
+                t[k] = json!(l);
+            }
+            tidy_task_links(t);
             if let Some(cl) = a.get("checklist").and_then(Value::as_array) {
                 t["checklist"] = Value::Array(cl.iter().map(|i| json!({ "id": new_id(), "text": s(i, "text"), "done": i["done"].as_bool().unwrap_or(false) })).collect());
             }
@@ -4130,11 +4434,13 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                 let key = repo_key(&r);
                 if r["provider"] == "gitlab" {
                     let path = key.trim_start_matches(crate::gl::PREFIX);
-                    match crate::gl::fetch_project(path, gitlab_token.as_deref()) {
+                    let (linked, linked_mrs) = linked_numbers(&p, &key)?;
+                    match crate::gl::fetch_project(path, gitlab_token.as_deref(), &linked, &linked_mrs) {
                         Ok(mut got) => {
                             report.push(format!(
-                                "{key}: {} issues, {} labels, {} epics{}",
+                                "{key}: {} issues, {} merge requests, {} labels, {} epics{}",
                                 got["issues"].as_array().map_or(0, Vec::len),
+                                got["mergeRequests"].as_array().map_or(0, Vec::len),
                                 got["labels"].as_array().map_or(0, Vec::len),
                                 got["epics"].as_array().map_or(0, Vec::len),
                                 got.get("epicsError")
@@ -4214,9 +4520,9 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let mut linked: HashMap<String, Vec<Value>> = HashMap::new();
             for b in load_boards(&p)? {
                 for t in b.data["tasks"].as_object().into_iter().flat_map(|m| m.values()) {
-                    if t["epic"].is_object() {
+                    for e in task_refs(t, "epic", "moreEpics") {
                         linked
-                            .entry(epic_ref(&t["epic"]))
+                            .entry(epic_ref(e))
                             .or_default()
                             .push(json!({ "board": b.data["name"], "task": t["id"], "title": t["title"] }));
                     }
@@ -4256,8 +4562,8 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let mut linked: HashMap<String, Vec<Value>> = HashMap::new();
             for b in load_boards(&p)? {
                 for t in b.data["tasks"].as_object().into_iter().flat_map(|m| m.values()) {
-                    if t["milestone"].is_object() {
-                        let k = format!("{}#{}", s(&t["milestone"], "repo"), t["milestone"]["number"]);
+                    for m in task_refs(t, "milestone", "moreMilestones") {
+                        let k = format!("{}#{}", s(m, "repo"), m["number"]);
                         linked
                             .entry(k)
                             .or_default()
@@ -4308,7 +4614,7 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
         "add_issue_as_task" => {
             let p = find_project(ctx, req_str(a, "project")?)?;
             let iref = parse_issue(req_str(a, "issue")?)?;
-            let cache = vaultfs::read_json(&issue_cache_path(&p)).unwrap_or(json!({ "repos": {} }));
+            let mut cache = vaultfs::read_json(&issue_cache_path(&p)).unwrap_or(json!({ "repos": {} }));
             let repo = s(&iref, "repo");
             let issue = cache["repos"]
                 .as_object()
@@ -4318,6 +4624,7 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                         .as_array()
                         .and_then(|is| is.iter().find(|i| i["number"] == iref["number"]).cloned())
                 })
+                .or_else(|| fetch_uncached_issue(&p, &mut cache, &iref))
                 .ok_or_else(|| {
                     format!(
                         "Issue {repo}#{} is not in the cache. Run sync_issues first.",
@@ -4337,7 +4644,7 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
             let p = find_project(ctx, req_str(a, "project")?)?;
             let mut b = find_board(&p, req_str(a, "board")?)?;
             let ci = task_column(&b.data, arg_str(a, "column"))?;
-            let cache = vaultfs::read_json(&issue_cache_path(&p)).unwrap_or(json!({ "repos": {} }));
+            let mut cache = vaultfs::read_json(&issue_cache_path(&p)).unwrap_or(json!({ "repos": {} }));
 
             // (canonical "owner/repo#n", title) of every requested issue that is in the cache.
             let mut picked: Vec<(String, Value)> = vec![];
@@ -4354,6 +4661,10 @@ fn call_tool(ctx: &Ctx, name: &str, a: &Value) -> R<Value> {
                                 .as_array()
                                 .and_then(|is| is.iter().find(|i| i["number"] == iref["number"]))
                                 .map(|i| (format!("{k}#{}", i["number"]), i["title"].clone()))
+                        })
+                        .or_else(|| {
+                            let i = fetch_uncached_issue(&p, &mut cache, &iref)?;
+                            Some((format!("{repo}#{}", i["number"]), i["title"].clone()))
                         });
                     match found {
                         Some(f) => picked.push(f),
@@ -4463,6 +4774,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn view_boards_show_their_rules_and_refuse_tasks() {
+        let b = json!({ "id": "v", "name": "Team", "kind": "view", "description": "", "viewRules": { "state": "open" },
+                        "columns": [{ "id": "c", "name": "Bugs", "source": { "kind": "query", "rules": { "type": "issues" } } }] });
+        assert!(super::kanban(&b).unwrap_err().contains("view-only"));
+        let v = super::view_board(&b);
+        assert_eq!(v["rules"]["state"], "open");
+        assert_eq!(v["columns"][0]["rules"]["type"], "issues");
+        assert_eq!(super::board_summary(&b)["kind"], "view");
+    }
+
+    #[test]
     fn decision_search_needs_every_word_and_ranks_code_references_first() {
         let d = json!({ "number": 12, "title": "Keyboard state is a sparse map", "why": "Only keys with input are stored.",
                         "rejected": "", "about": ["keyboard_state", "src/tca-engine/input/"], "tags": ["input"], "issues": [] });
@@ -4560,6 +4882,60 @@ mod tests {
             &json!({ "project": "P", "board": "Two", "task": "A", "column": "Nope", "to_board": "One" })
         )
         .is_err());
+        std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
+    fn tasks_hold_several_links_and_one_milestone_per_repo() {
+        let vault = std::env::temp_dir().join(format!("astali-more-links-test-{}", super::new_id()));
+        std::fs::create_dir_all(vault.join("p")).unwrap();
+        std::fs::write(
+            vault.join("p").join("project.json"),
+            json!({ "id": "p", "name": "P", "boardOrder": [] }).to_string(),
+        )
+        .unwrap();
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args);
+        call("create_board", json!({ "project": "P", "name": "Work" })).unwrap();
+        let made = call(
+            "create_task",
+            json!({ "project": "P", "board": "Work", "title": "A", "issue": "o/r#1",
+                    "more_issues": ["gitlab:g/p#2", "o/r#1"],
+                    "milestone": "o/r#5", "more_milestones": ["gitlab:g/p#7", "o/r#6"] }),
+        )
+        .unwrap();
+        // The repeated issue and the second milestone of o/r are dropped; GitLab's stays.
+        assert_eq!(
+            made["created"]["moreIssues"],
+            json!([{ "repo": "gitlab:g/p", "number": 2 }])
+        );
+        assert_eq!(
+            made["created"]["moreMilestones"],
+            json!([{ "repo": "gitlab:g/p", "number": 7 }])
+        );
+
+        // Clearing the list keeps the first link.
+        call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "A", "more_issues": [] }),
+        )
+        .unwrap();
+        let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
+        let task = &board["columns"][0]["tasks"][0];
+        assert_eq!(task["issue"], json!({ "repo": "o/r", "number": 1 }));
+        assert!(task.get("moreIssues").is_none());
+        assert_eq!(task["moreMilestones"], json!(["gitlab:g/p#7"]));
+
+        // An empty milestone unlinks them all.
+        call(
+            "update_task",
+            json!({ "project": "P", "board": "Work", "task": "A", "milestone": "" }),
+        )
+        .unwrap();
+        let board = call("get_board", json!({ "project": "P", "board": "Work" })).unwrap();
+        let task = &board["columns"][0]["tasks"][0];
+        assert!(task.get("milestone").is_none());
+        assert!(task.get("moreMilestones").is_none());
         std::fs::remove_dir_all(&vault).ok();
     }
 
@@ -4985,6 +5361,35 @@ mod tests {
         assert_eq!(read()["doneColumn"], later);
         let fresh = super::new_board("B", "", None);
         assert_eq!(fresh["doneColumn"], fresh["columns"][2]["id"]);
+        std::fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
+    fn archived_projects_are_out_of_reach_until_restored() {
+        let vault = std::env::temp_dir().join(format!("astali-project-archive-test-{}", super::new_id()));
+        std::fs::create_dir_all(vault.join("p").join("boards")).unwrap();
+        std::fs::write(
+            vault.join("p").join("project.json"),
+            json!({ "id": "p", "name": "P", "boardOrder": [] }).to_string(),
+        )
+        .unwrap();
+        let ctx = Ctx::new(Some(vault.clone()), Source::Flag);
+        let call = |name: &str, args: serde_json::Value| call_tool(&ctx, name, &args);
+
+        assert!(call("restore_project", json!({ "project": "P" })).is_err());
+        call("archive_project", json!({ "project": "P" })).unwrap();
+        let listed = call("list_projects", json!({})).unwrap();
+        assert_eq!(listed["projects"], json!([]));
+        assert_eq!(listed["archivedProjects"][0]["name"], "P");
+        assert!(call("list_boards", json!({ "project": "P" }))
+            .unwrap_err()
+            .contains("archived"));
+
+        call("restore_project", json!({ "project": "p" })).unwrap();
+        let listed = call("list_projects", json!({})).unwrap();
+        assert_eq!(listed["projects"][0]["name"], "P");
+        assert!(listed.get("archivedProjects").is_none());
+        call("list_boards", json!({ "project": "P" })).unwrap();
         std::fs::remove_dir_all(&vault).ok();
     }
 

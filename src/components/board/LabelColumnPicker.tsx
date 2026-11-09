@@ -1,11 +1,16 @@
 import { RefreshCw, Search } from "lucide-react";
 import { useState } from "react";
 import { liveLabel } from "../../lib/labelColumns";
-import { addLabelColumn, currentProject, syncIssues, useStore } from "../../lib/store";
+import { addLabelColumn, addViewColumn, currentProject, refreshViewBoard, syncIssues, useStore } from "../../lib/store";
+import type { GhLabel } from "../../lib/types";
 import { cx, repoKey } from "../../lib/util";
+import { hasLabelColumn, isView, labelRules } from "../../lib/viewBoards";
 import { GhLabelChip, Popover } from "../ui";
 
-/** Picks a label of one of the project's repositories to add as a live label column. */
+/**
+ * Picks a label of one of the project's repositories to add as a column: a live label column, or on a view board a
+ * column of rules, which match labels by name.
+ */
 export function LabelColumnPicker({
   boardId,
   anchor,
@@ -21,6 +26,7 @@ export function LabelColumnPicker({
   const issues = useStore((s) => s.issues);
   const syncing = useStore((s) => s.syncing);
   const columns = useStore((s) => s.boards[boardId]?.board.columns ?? []);
+  const view = useStore((s) => isView(s.boards[boardId]?.board));
   const [query, setQuery] = useState("");
 
   // A label can back only one live column per board.
@@ -30,12 +36,21 @@ export function LabelColumnPicker({
       return src ? [`${src.repo}|${src.labelId}`] : [];
     }),
   );
+  const isTaken = (repo: string, l: GhLabel) =>
+    view ? hasLabelColumn(columns, repo, l.name) : bound.has(`${repo}|${l.id}`);
+  const add = (repo: string, l: GhLabel) => {
+    if (view) {
+      addViewColumn(boardId, l.name, `#${l.color}`, labelRules(repo, l.name));
+      refreshViewBoard(boardId);
+    } else addLabelColumn(boardId, repo, l);
+  };
   const q = query.trim().toLowerCase();
   const groups = repos.map((r) => {
     const key = repoKey(r);
     const rc = issues.repos[key];
     const labels = (rc?.labels ?? []).filter(
-      (l) => l.id != null && (!q || l.name.toLowerCase().includes(q) || l.description?.toLowerCase().includes(q)),
+      (l) =>
+        (view || l.id != null) && (!q || l.name.toLowerCase().includes(q) || l.description?.toLowerCase().includes(q)),
     );
     return { key, loaded: !!rc?.labels, error: rc?.error, labels };
   });
@@ -63,20 +78,20 @@ export function LabelColumnPicker({
                     <div className="faint small label-picker-note">No matching labels</div>
                   )}
                   {g.labels.map((l) => {
-                    const taken = bound.has(`${g.key}|${l.id}`);
+                    const taken = isTaken(g.key, l);
                     return (
                       <button
-                        key={l.id}
+                        key={l.id ?? l.name}
                         className={cx("issue-picker-item", taken && "disabled")}
                         disabled={taken}
                         title={taken ? "This label already has a column on this board" : l.description || undefined}
                         onClick={() => {
-                          addLabelColumn(boardId, g.key, l);
+                          add(g.key, l);
                           onAdded();
                           onClose();
                         }}
                       >
-                        <GhLabelChip label={l} />
+                        <GhLabelChip label={l} source={g.key} />
                         <span className="issue-picker-title faint small">
                           {taken ? "Already on this board" : l.description}
                         </span>

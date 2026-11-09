@@ -36,7 +36,7 @@ thanked in the [changelog](CHANGELOG.md).
 Setup and build commands are in the [README](README.md#development). Before opening a pull request:
 
 - `npm run build` passes (it type-checks the frontend)
-- `cargo test` passes in `src-tauri`
+- `cargo test` and `cargo clippy --all-targets -- -D warnings` pass in `src-tauri`
 - you've tried the change in the running app (`npm run tauri dev`)
 
 A few conventions:

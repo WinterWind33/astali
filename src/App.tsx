@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
 import { GitConflictDialog } from "./components/GitPanel";
 import { SeasonArt } from "./components/SeasonArt";
@@ -7,7 +8,15 @@ import { SearchDialog } from "./components/SearchDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { TitleBar } from "./components/TitleBar";
 import { ConfirmHost, Toasts } from "./components/ui";
-import { init, pollIssues, refreshFromDisk, refreshRepo, reloadConfig, useStore } from "./lib/store";
+import {
+  finishBeforeClosing,
+  init,
+  pollIssues,
+  refreshFromDisk,
+  refreshRepo,
+  reloadConfig,
+  useStore,
+} from "./lib/store";
 import { useResolvedTheme, useSeason } from "./lib/theme";
 import { checkForUpdateOnStartup } from "./lib/updater";
 import { Home } from "./pages/Home";
@@ -28,9 +37,13 @@ export default function App() {
     init().then(checkForUpdateOnStartup);
     const unlisten = listen<string[]>("vault-changed", (e) => refreshFromDisk(e.payload));
     const unlistenConfig = listen("config-changed", () => reloadConfig());
+    // Every way of closing lands here (the title bar's X, Alt+F4, the taskbar); the window goes when this ends.
+    const win = getCurrentWindow();
+    const unlistenClose = win.onCloseRequested(() => finishBeforeClosing(() => win.hide()));
     return () => {
       unlisten.then((f) => f());
       unlistenConfig.then((f) => f());
+      unlistenClose.then((f) => f());
     };
   }, []);
 

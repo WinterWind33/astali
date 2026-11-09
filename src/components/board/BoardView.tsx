@@ -33,6 +33,7 @@ import {
   useStore,
 } from "../../lib/store";
 import type { Board, Column, GhIssue, IssueRef, Task } from "../../lib/types";
+import { taskIssues } from "../../lib/taskRefs";
 import { issueKey, repoKey } from "../../lib/util";
 import { InlineEdit } from "../ui";
 import { ArchiveDialog } from "./ArchiveDialog";
@@ -72,7 +73,7 @@ function inVerticalScroller(el: Element | null, stop: Element) {
  * than the board: the mouse wheel scrolls sideways (unless it is over a column that scrolls
  * vertically), and dragging empty board space, or middle-dragging anywhere, pans.
  */
-function useHorizontalPan(el: HTMLDivElement | null) {
+export function useHorizontalPan(el: HTMLDivElement | null) {
   useEffect(() => {
     if (!el) return;
 
@@ -128,15 +129,16 @@ function useHorizontalPan(el: HTMLDivElement | null) {
 
 function matches(task: Task, q: string) {
   if (!q) return true;
-  const hay =
-    `${task.title} ${task.description} ${task.labels.join(" ")} ${task.issue ? `#${task.issue.number}` : ""}`.toLowerCase();
+  const hay = `${task.title} ${task.description} ${task.labels.join(" ")} ${taskIssues(task)
+    .map((i) => `#${i.number}`)
+    .join(" ")}`.toLowerCase();
   return q
     .toLowerCase()
     .split(/\s+/)
     .every((w) => hay.includes(w));
 }
 
-function issueMatches(issue: GhIssue, q: string) {
+export function issueMatches(issue: GhIssue, q: string) {
   if (!q) return true;
   const hay =
     `${issue.title} ${issue.labels.map((l) => l.name).join(" ")} #${issue.number} ${issue.assignees.join(" ")}`.toLowerCase();
@@ -234,8 +236,7 @@ export function BoardView({ boardId, archivedTask }: { boardId: string; archived
     const onBoard = new Map<string, string>();
     for (const c of board.columns)
       for (const id of c.taskIds) {
-        const ref = board.tasks[id]?.issue;
-        if (ref) onBoard.set(issueKey(ref), c.name);
+        for (const ref of taskIssues(board.tasks[id] ?? {})) onBoard.set(issueKey(ref), c.name);
       }
     const inProject = new Set((repos ?? []).map(repoKey));
     const q = query.trim();

@@ -212,11 +212,34 @@ fn save_gitlab_token(token: String) -> CmdResult<()> {
     secrets::set_gitlab_token(&token)
 }
 
-/// Read-only: a gitlab.com project's issues, labels and epics, in the issue cache's shape. Fetched
-/// here rather than in the webview, so the MCP server shares the code. Async: off the main thread.
+/// Read-only: a gitlab.com project's issues, merge requests, labels and epics, in the issue cache's
+/// shape, keeping the items tasks link to. Fetched here rather than in the webview, so the MCP server
+/// shares the code. Async: off the main thread.
 #[tauri::command]
-async fn gitlab_fetch_project(path: String, token: String) -> CmdResult<serde_json::Value> {
-    gl::fetch_project(&path, Some(&token))
+async fn gitlab_fetch_project(
+    path: String,
+    token: String,
+    linked_issues: Vec<u64>,
+    linked_merge_requests: Vec<u64>,
+) -> CmdResult<serde_json::Value> {
+    gl::fetch_project(&path, Some(&token), &linked_issues, &linked_merge_requests)
+}
+
+/// Read-only: one issue or merge request by number. Errors start with the HTTP status.
+#[tauri::command]
+async fn gitlab_fetch_item(path: String, iid: u64, merge_request: bool, token: String) -> CmdResult<serde_json::Value> {
+    gl::fetch_item(&path, iid, merge_request, Some(&token))
+}
+
+/// Read-only: the issues or merge requests a view board's filters find. Errors start with the HTTP status.
+#[tauri::command]
+async fn gitlab_query_items(
+    path: String,
+    merge_request: bool,
+    params: Vec<(String, String)>,
+    token: String,
+) -> CmdResult<Vec<serde_json::Value>> {
+    gl::query_items(&path, merge_request, &params, Some(&token))
 }
 
 /// Read-only: an issue's comments, fetched when the user opens them. Errors start with the HTTP status.
@@ -335,6 +358,12 @@ async fn git_sync(app: tauri::AppHandle, vault: String, message: String) -> CmdR
 }
 
 #[tauri::command]
+async fn git_sync_on_close(app: tauri::AppHandle, vault: String, message: String) -> CmdResult<()> {
+    let _one = gitops::lock();
+    gitops::sync_on_close(&the_vault(&app, &vault)?, &message)
+}
+
+#[tauri::command]
 async fn git_conflicts(app: tauri::AppHandle, vault: String) -> CmdResult<Vec<String>> {
     gitops::conflicts(&the_vault(&app, &vault)?)
 }
@@ -382,6 +411,18 @@ async fn history_undo(
     skip_conflicts: bool,
 ) -> CmdResult<serde_json::Value> {
     history::undo(&the_vault(&app, &vault)?, &id, skip_conflicts, &history::Actor::app())
+}
+
+/// Permanently removes the projects whose restore window is over; see `history::purge_deleted_projects`.
+#[tauri::command]
+async fn history_purge_deleted(app: tauri::AppHandle, vault: String, since: u64) -> CmdResult<usize> {
+    history::purge_deleted_projects(&the_vault(&app, &vault)?, since)
+}
+
+/// Permanently removes one deleted project now; see `history::purge_project`.
+#[tauri::command]
+async fn history_purge_project(app: tauri::AppHandle, vault: String, project: String) -> CmdResult<()> {
+    history::purge_project(&the_vault(&app, &vault)?, &project)
 }
 
 // ---------------------------------------------------------------- plans
@@ -525,6 +566,8 @@ pub fn run() {
             load_gitlab_token,
             save_gitlab_token,
             gitlab_fetch_project,
+            gitlab_query_items,
+            gitlab_fetch_item,
             gitlab_issue_comments,
             gitlab_token_status,
             exe_path,
@@ -543,12 +586,15 @@ pub fn run() {
             git_pull,
             git_push,
             git_sync,
+            git_sync_on_close,
             git_conflicts,
             git_resolve,
             git_abort_merge,
             github_token_status,
             history_list,
             history_undo,
+            history_purge_deleted,
+            history_purge_project,
             plan_from_markdown,
             plan_to_markdown
         ])

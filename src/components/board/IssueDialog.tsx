@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { taskIssues } from "../../lib/taskRefs";
 import { useState } from "react";
 import { isViewColumn } from "../../lib/labelColumns";
 import { addIssueTasks, toast, useStore } from "../../lib/store";
@@ -29,7 +30,7 @@ export function IssueDialog({
 
   const taskId = board.columns
     .flatMap((c) => c.taskIds)
-    .find((id) => board.tasks[id]?.issue?.repo === issue.repo && board.tasks[id]?.issue?.number === issue.number);
+    .find((id) => taskIssues(board.tasks[id] ?? {}).some((r) => r.repo === issue.repo && r.number === issue.number));
   const taskColumn = taskId ? board.columns.find((c) => c.taskIds.includes(taskId)) : undefined;
 
   const add = () => {

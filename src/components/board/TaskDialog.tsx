@@ -1,26 +1,20 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Archive,
-  Calendar,
   CheckSquare,
-  CircleDot,
+  ChevronRight,
   Columns3,
   ExternalLink,
   Flag,
   FolderInput,
   Kanban,
-  Layers,
-  Link2,
-  Link2Off,
-  Palette,
   Plus,
   Search,
   Tag,
   Trash2,
-  Milestone,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   archiveTasks,
@@ -37,15 +31,15 @@ import {
 } from "../../lib/store";
 import { isViewColumn } from "../../lib/labelColumns";
 import { defaultTagColor, tagKey } from "../../lib/tags";
-import type { GhIssue, GhMilestone, GlEpic, Priority, Task } from "../../lib/types";
-import { findMilestone, milestoneProgress, milestoneSummary } from "../../lib/milestones";
-import { colorHex, cx, isPreset, issueUrl, MOD_KEY, providerName, relativeTime, repoName, uid } from "../../lib/util";
-import { allEpics, epicLabel, epicSummary, findEpic } from "../../lib/epics";
+import { taskIssues } from "../../lib/taskRefs";
+import type { IssueRef, Priority, Task } from "../../lib/types";
+import { cx, issueKey, issueUrl, MOD_KEY, providerName, relativeTime, uid } from "../../lib/util";
 import { ColorPicker } from "../ColorPicker";
 import { TagInput } from "../TagInput";
-import { IssuePanel, IssueStateIcon, Markdown, Modal, Popover, ProviderMark, TagChip, confirm, Gitlab } from "../ui";
+import { IssuePanel, IssueStateIcon, Markdown, Modal, Popover, ProviderMark, TagChip, confirm } from "../ui";
 import { PRIORITY_META, PriorityIcon } from "./TaskCard";
 import { TaskLinks } from "./TaskLinks";
+import { TaskProperties } from "./TaskProperties";
 
 function AutoTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -61,7 +55,21 @@ function AutoTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) 
 /** What the dialog edits: the task's own fields, and the column it sits in. */
 type Draft = Pick<
   Task,
-  "title" | "description" | "priority" | "labels" | "dueDate" | "issue" | "milestone" | "epic" | "color" | "checklist"
+  | "title"
+  | "description"
+  | "priority"
+  | "labels"
+  | "dueDate"
+  | "issue"
+  | "moreIssues"
+  | "mergeRequest"
+  | "moreMergeRequests"
+  | "milestone"
+  | "moreMilestones"
+  | "epic"
+  | "moreEpics"
+  | "color"
+  | "checklist"
 > & {
   column: string;
 };
@@ -84,31 +92,16 @@ export function TaskDialog({
 }) {
   const board = useStore((s) => s.boards[boardId]?.board);
   const task = board?.tasks[taskId];
-  const issues = useStore((s) => s.issues);
   const [descMode, setDescMode] = useState<"preview" | "edit">(task?.description ? "preview" : "edit");
   const [checkInput, setCheckInput] = useState("");
-  const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null);
-  const [milestoneAnchor, setMilestoneAnchor] = useState<DOMRect | null>(null);
-  const [epicAnchor, setEpicAnchor] = useState<DOMRect | null>(null);
   const [tagMenu, setTagMenu] = useState<{ tag: string; anchor: DOMRect } | null>(null);
   const [moveAnchor, setMoveAnchor] = useState<DOMRect | null>(null);
-  const [colorAnchor, setColorAnchor] = useState<DOMRect | null>(null);
   // Only the fields edited here; the others show the task as it is on disk (e.g. edited by Claude meanwhile).
   const [edits, setEdits] = useState<Partial<Draft>>({});
   const asking = useRef(false);
 
   const savedColumn = board?.columns.find((c) => c.taskIds.includes(taskId));
   const draft: Draft | undefined = task && { ...task, column: savedColumn?.id ?? "", ...edits };
-  const issue = draft?.issue;
-  const linked = useMemo(
-    () => (issue ? issues.repos[issue.repo]?.issues.find((i) => i.number === issue.number) : undefined),
-    [issue, issues],
-  );
-
-  const milestone = findMilestone(issues, draft?.milestone);
-  const epic = findEpic(issues, draft?.epic);
-  // Epics only exist on GitLab: the field shows once a GitLab project brought some, or the task has one.
-  const hasEpics = useMemo(() => allEpics(issues).length > 0, [issues]);
 
   if (!board || !task || !draft) return null;
   const column = board.columns.find((c) => c.id === draft.column);
@@ -157,16 +150,6 @@ export function TaskDialog({
     const t = checkInput.trim();
     if (t) update({ checklist: [...draft.checklist, { id: uid(), text: t, done: false }] });
     setCheckInput("");
-  };
-
-  const linkIssue = (i: GhIssue) => {
-    update({
-      issue: { repo: i.repo, number: i.number },
-      // A GitLab issue in an epic brings the epic along, unless the task already has one.
-      ...(i.epic && !draft.epic ? { epic: { group: i.epic.group, iid: i.epic.iid } } : {}),
-      ...(draft.title === "Untitled" || !draft.title ? { title: i.title } : {}),
-    });
-    setPickerAnchor(null);
   };
 
   const doneCount = draft.checklist.filter((c) => c.done).length;
@@ -289,27 +272,7 @@ export function TaskDialog({
 
             <TaskLinks boardId={boardId} taskId={taskId} onOpenTask={onOpenTask} mayLeave={mayLeave} />
 
-            {draft.issue && (
-              <>
-                <div className="section-head">
-                  <span>
-                    <ProviderMark repo={draft.issue.repo} size={14} /> Linked issue
-                  </span>
-                </div>
-                {linked ? (
-                  <IssuePanel issue={linked} />
-                ) : (
-                  <div className="issue-panel missing">
-                    <span>
-                      {draft.issue.repo}#{draft.issue.number} is not in the local cache. Sync issues to see its details.
-                    </span>
-                    <button className="btn small" onClick={() => openUrl(issueUrl(draft.issue!))}>
-                      <ExternalLink size={13} /> Open on {providerName(draft.issue.repo)}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
+            <LinkedIssues links={taskIssues(draft)} />
           </div>
 
           <aside className="task-dialog-side">
@@ -349,24 +312,6 @@ export function TaskDialog({
 
             <div className="prop">
               <div className="prop-label">
-                <Calendar size={14} /> Due date
-              </div>
-              <div className="input-row">
-                <input
-                  type="date"
-                  value={draft.dueDate ?? ""}
-                  onChange={(e) => update({ dueDate: e.target.value || null })}
-                />
-                {draft.dueDate && (
-                  <button className="icon-btn small" onClick={() => update({ dueDate: null })} title="Clear">
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="prop">
-              <div className="prop-label">
                 <Tag size={14} /> Tags
               </div>
               <TagInput
@@ -378,120 +323,7 @@ export function TaskDialog({
               />
             </div>
 
-            <div className="prop">
-              <div className="prop-label">
-                <Palette size={14} /> Color
-              </div>
-              <div className="task-color-row">
-                <button className="btn small" onClick={(e) => setColorAnchor(e.currentTarget.getBoundingClientRect())}>
-                  <span
-                    className={cx("task-color-dot", !draft.color && "none")}
-                    style={draft.color ? ({ "--c": colorHex(draft.color) } as React.CSSProperties) : undefined}
-                  />
-                  {draft.color ? (isPreset(draft.color) ? capitalize(draft.color) : draft.color) : "None"}
-                </button>
-                {draft.color && (
-                  <button className="icon-btn small" onClick={() => update({ color: null })} title="No color">
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="prop">
-              <div className="prop-label">
-                {draft.issue ? <ProviderMark repo={draft.issue.repo} size={14} /> : <CircleDot size={14} />} Issue
-              </div>
-              {draft.issue ? (
-                <div className="linked-issue-chip">
-                  {linked ? (
-                    <IssueStateIcon issue={linked} size={14} />
-                  ) : (
-                    <ProviderMark repo={draft.issue.repo} size={14} />
-                  )}
-                  <span title={`${draft.issue.repo}#${draft.issue.number}`}>
-                    {repoName(draft.issue.repo)}#{draft.issue.number}
-                  </span>
-                  <button className="icon-btn tiny" title="Unlink" onClick={() => update({ issue: null })}>
-                    <Link2Off size={13} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  className="btn small full"
-                  onClick={(e) => setPickerAnchor(e.currentTarget.getBoundingClientRect())}
-                >
-                  <Link2 size={14} /> Link issue
-                </button>
-              )}
-            </div>
-
-            <div className="prop">
-              <div className="prop-label">
-                <Milestone size={14} /> Milestone
-              </div>
-              {draft.milestone ? (
-                <div
-                  className={cx("linked-issue-chip", "milestone-chip", milestone?.state)}
-                  title={milestone ? milestoneSummary(milestone) : "Not in the local cache — sync issues"}
-                >
-                  <Milestone size={14} />
-                  {milestone ? (
-                    <button className="link-text" onClick={() => openUrl(milestone.url)}>
-                      {milestone.title}
-                    </button>
-                  ) : (
-                    <span>
-                      {repoName(draft.milestone.repo)} milestone {draft.milestone.number}
-                    </span>
-                  )}
-                  {milestone && <span className="milestone-progress">{milestoneProgress(milestone)}%</span>}
-                  <button className="icon-btn tiny" title="Unlink" onClick={() => update({ milestone: null })}>
-                    <Link2Off size={13} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  className="btn small full"
-                  onClick={(e) => setMilestoneAnchor(e.currentTarget.getBoundingClientRect())}
-                >
-                  <Link2 size={14} /> Link milestone
-                </button>
-              )}
-            </div>
-
-            {(hasEpics || draft.epic) && (
-              <div className="prop">
-                <div className="prop-label">
-                  <Layers size={14} /> Epic
-                </div>
-                {draft.epic ? (
-                  <div
-                    className={cx("linked-issue-chip", "milestone-chip", epic?.state)}
-                    title={epic ? epicSummary(issues, epic) : "Not in the local cache — sync issues"}
-                  >
-                    <Gitlab size={14} />
-                    {epic ? (
-                      <button className="link-text" onClick={() => openUrl(epic.url)}>
-                        {epic.title}
-                      </button>
-                    ) : (
-                      <span>{epicLabel(draft.epic)}</span>
-                    )}
-                    <button className="icon-btn tiny" title="Unlink" onClick={() => update({ epic: null })}>
-                      <Link2Off size={13} />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className="btn small full"
-                    onClick={(e) => setEpicAnchor(e.currentTarget.getBoundingClientRect())}
-                  >
-                    <Link2 size={14} /> Link epic
-                  </button>
-                )}
-              </div>
-            )}
+            <TaskProperties draft={draft} update={update} />
 
             <div className="side-spacer" />
             <button
@@ -571,49 +403,58 @@ export function TaskDialog({
           />
         </Popover>
       )}
-      {colorAnchor && (
-        <Popover anchor={colorAnchor} align="right" onClose={() => setColorAnchor(null)}>
-          <div className="popover-pad">
-            <ColorPicker
-              value={draft.color ?? null}
-              onChange={(c, picked) => {
-                update({ color: c });
-                if (picked) setColorAnchor(null);
-              }}
-            />
-          </div>
-        </Popover>
-      )}
-      {pickerAnchor && (
-        <Popover anchor={pickerAnchor} align="right" onClose={() => setPickerAnchor(null)}>
-          <IssuePicker onPick={linkIssue} />
-        </Popover>
-      )}
-      {epicAnchor && (
-        <Popover anchor={epicAnchor} align="right" onClose={() => setEpicAnchor(null)}>
-          <EpicPicker
-            onPick={(e) => {
-              update({ epic: { group: e.group, iid: e.iid } });
-              setEpicAnchor(null);
-            }}
-          />
-        </Popover>
-      )}
-      {milestoneAnchor && (
-        <Popover anchor={milestoneAnchor} align="right" onClose={() => setMilestoneAnchor(null)}>
-          <MilestonePicker
-            onPick={(m) => {
-              update({ milestone: { repo: m.repo, number: m.number } });
-              setMilestoneAnchor(null);
-            }}
-          />
-        </Popover>
-      )}
     </Modal>
   );
 }
 
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** The details of the linked issues: open when there's one, folded when there are several. */
+function LinkedIssues({ links }: { links: IssueRef[] }) {
+  if (links.length === 0) return null;
+  return (
+    <>
+      <div className="section-head">
+        <span>
+          <ProviderMark repo={links[0].repo} size={14} /> Linked {links.length === 1 ? "issue" : "issues"}
+        </span>
+      </div>
+      {links.length === 1 ? (
+        <LinkedIssue link={links[0]} />
+      ) : (
+        links.map((l) => <LinkedIssueFold key={issueKey(l)} link={l} />)
+      )}
+    </>
+  );
+}
+
+function LinkedIssueFold({ link }: { link: IssueRef }) {
+  const issue = useStore((s) => s.issues.repos[link.repo]?.issues.find((i) => i.number === link.number));
+  return (
+    <details className="linked-issue-fold">
+      <summary>
+        <ChevronRight size={14} className="fold-chevron" />
+        {issue ? <IssueStateIcon issue={issue} size={14} /> : <ProviderMark repo={link.repo} size={14} />}
+        <span className="linked-issue-fold-title">{issue?.title ?? issueKey(link)}</span>
+        <span className="faint small">#{link.number}</span>
+      </summary>
+      <LinkedIssue link={link} />
+    </details>
+  );
+}
+
+function LinkedIssue({ link }: { link: IssueRef }) {
+  const issue = useStore((s) => s.issues.repos[link.repo]?.issues.find((i) => i.number === link.number));
+  if (issue) return <IssuePanel issue={issue} />;
+  return (
+    <div className="issue-panel missing">
+      <span>
+        {link.repo}#{link.number} is not in the local cache. Sync issues to see its details.
+      </span>
+      <button className="btn small" onClick={() => openUrl(issueUrl(link))}>
+        <ExternalLink size={13} /> Open on {providerName(link.repo)}
+      </button>
+    </div>
+  );
+}
 
 /** The columns that can take a task on the project's other kanban boards, by board. */
 function BoardColumnPicker({
@@ -640,128 +481,6 @@ function BoardColumnPicker({
             ))}
         </div>
       ))}
-    </div>
-  );
-}
-
-export function IssuePicker({ onPick }: { onPick: (i: GhIssue) => void }) {
-  const issues = useStore((s) => s.issues);
-  const [q, setQ] = useState("");
-  const all = useMemo(() => Object.values(issues.repos).flatMap((r) => r.issues), [issues]);
-  const shown = useMemo(() => {
-    const s = q.trim().toLowerCase().replace(/^#/, "");
-    return all
-      .filter((i) => !i.isPullRequest)
-      .filter((i) => !s || i.title.toLowerCase().includes(s) || String(i.number).startsWith(s))
-      .sort((a, b) => (a.state === b.state ? b.updatedAt.localeCompare(a.updatedAt) : a.state === "open" ? -1 : 1))
-      .slice(0, 50);
-  }, [all, q]);
-
-  return (
-    <div className="issue-picker">
-      <label className="search">
-        <Search size={14} />
-        <input
-          autoFocus
-          placeholder="Search issues by title or #number"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-      </label>
-      <div className="issue-picker-list">
-        {all.length === 0 && <div className="faint small pad">No cached issues. Sync from the sidebar first.</div>}
-        {shown.map((i) => (
-          <button key={`${i.repo}#${i.number}`} className="issue-picker-item" onClick={() => onPick(i)}>
-            <IssueStateIcon issue={i} size={14} />
-            <span className="issue-picker-title">{i.title}</span>
-            <span className="faint small">#{i.number}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** The cached milestones of the project's repositories, open ones first. */
-function MilestonePicker({ onPick }: { onPick: (m: GhMilestone) => void }) {
-  const issues = useStore((s) => s.issues);
-  const [q, setQ] = useState("");
-  const all = useMemo(() => Object.values(issues.repos).flatMap((r) => r.milestones ?? []), [issues]);
-  const multiRepo = new Set(all.map((m) => m.repo)).size > 1;
-  const shown = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return all
-      .filter((m) => !s || m.title.toLowerCase().includes(s))
-      .sort((a, b) => (a.state === b.state ? a.title.localeCompare(b.title) : a.state === "open" ? -1 : 1));
-  }, [all, q]);
-
-  return (
-    <div className="issue-picker">
-      <label className="search">
-        <Search size={14} />
-        <input autoFocus placeholder="Search milestones" value={q} onChange={(e) => setQ(e.target.value)} />
-      </label>
-      <div className="issue-picker-list">
-        {all.length === 0 && <div className="faint small pad">No cached milestones. Sync from the sidebar first.</div>}
-        {shown.map((m) => (
-          <button
-            key={`${m.repo}#${m.number}`}
-            className={cx("issue-picker-item", m.state === "closed" && "faint")}
-            onClick={() => onPick(m)}
-            title={milestoneSummary(m)}
-          >
-            <Milestone size={14} />
-            <span className="issue-picker-title">{m.title}</span>
-            <span className="faint small">
-              {multiRepo ? `${repoName(m.repo)} · ` : ""}
-              {m.state === "closed" ? "closed" : `${milestoneProgress(m)}%`}
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** The cached GitLab epics of the project's groups, open ones first. */
-function EpicPicker({ onPick }: { onPick: (e: GlEpic) => void }) {
-  const issues = useStore((s) => s.issues);
-  const [q, setQ] = useState("");
-  const all = useMemo(() => allEpics(issues), [issues]);
-  const multiGroup = new Set(all.map((e) => e.group)).size > 1;
-  const shown = useMemo(() => {
-    const s = q.trim().toLowerCase().replace(/^&/, "");
-    return all.filter((e) => !s || e.title.toLowerCase().includes(s) || String(e.iid).startsWith(s));
-  }, [all, q]);
-
-  return (
-    <div className="issue-picker">
-      <label className="search">
-        <Search size={14} />
-        <input
-          autoFocus
-          placeholder="Search epics by title or &number"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-      </label>
-      <div className="issue-picker-list">
-        {shown.map((e) => (
-          <button
-            key={`${e.group}&${e.iid}`}
-            className={cx("issue-picker-item", e.state === "closed" && "faint")}
-            onClick={() => onPick(e)}
-            title={epicSummary(issues, e)}
-          >
-            <Layers size={14} />
-            <span className="issue-picker-title">{e.title}</span>
-            <span className="faint small">
-              {multiGroup ? epicLabel(e) : `&${e.iid}`}
-              {e.state === "closed" ? " · closed" : ""}
-            </span>
-          </button>
-        ))}
-      </div>
     </div>
   );
 }

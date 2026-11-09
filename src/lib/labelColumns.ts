@@ -1,6 +1,7 @@
 import type { Board, Column, ColumnSource, GhIssue, GhLabel, IssueCache, LabelSource, Task } from "./types";
 import { normalizeTagSource } from "./tags";
 import { colorHex, labelUrl as labelPage } from "./util";
+import { normalizeQuerySource } from "./viewBoards";
 
 /*
  * Label columns: a column bound to a GitHub label shows, live, the cached issues carrying it. The
@@ -24,7 +25,7 @@ export function liveLabel(c: Pick<Column, "source"> | undefined): LabelSource | 
  * tag column (the board's tasks carrying some tags). Neither holds tasks of its own.
  */
 export function isViewColumn(c: Pick<Column, "source"> | undefined): boolean {
-  return !!liveLabel(c) || c?.source?.kind === "tags";
+  return !!liveLabel(c) || c?.source?.kind === "tags" || c?.source?.kind === "query";
 }
 
 /** The board's done column: the one picked as such, else the last column that holds tasks (D-3). */
@@ -107,6 +108,7 @@ export const labelUrl = (src: LabelSource) => labelPage(src.repo, src.name);
 export function normalizeSource(s: unknown): ColumnSource | null {
   const kind = (s as { kind?: unknown } | null)?.kind;
   if (kind === "tags") return normalizeTagSource(s as object);
+  if (kind === "query") return normalizeQuerySource(s as object);
   // A kind of column this version doesn't know (from a newer one) is kept as it is; nothing here acts on it.
   if (typeof kind === "string" && kind !== "label") return s as ColumnSource;
   const v = s as Partial<LabelSource> | null | undefined;

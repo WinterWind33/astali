@@ -1,8 +1,10 @@
 import { useSortable } from "@dnd-kit/sortable";
+import { taskEpics, taskIssues, taskMergeRequests, taskMilestones } from "../../lib/taskRefs";
 import { CSS } from "@dnd-kit/utilities";
 import { useDraggable } from "@dnd-kit/core";
 import { AlignLeft, Ban, Calendar, CheckSquare, Columns3, Layers, Milestone } from "lucide-react";
 import { epicLabel, findEpic } from "../../lib/epics";
+import { findMergeRequest, mergeRequestLabel, mergeRequestSummary } from "../../lib/mergeRequests";
 import { findMilestone, milestoneSummary } from "../../lib/milestones";
 import { memo } from "react";
 import { boardOfTask, openBlockers } from "../../lib/links";
@@ -36,6 +38,16 @@ export function PriorityIcon({ priority }: { priority: Priority }) {
   );
 }
 
+/** "+2" for the links a card doesn't spell out, named in its tooltip. */
+export function MoreLinks({ labels }: { labels: string[] }) {
+  if (labels.length === 0) return null;
+  return (
+    <span className="task-issue" title={labels.join("\n")}>
+      +{labels.length}
+    </span>
+  );
+}
+
 export const TaskCard = memo(function TaskCard({
   task,
   onOpen,
@@ -46,11 +58,16 @@ export const TaskCard = memo(function TaskCard({
   /** Shown on cards in a tag column: the column the task actually is in. */
   columnName?: string;
 }) {
+  const [issueRef, ...moreIssues] = taskIssues(task);
+  const [mergeRequestRef, ...moreMergeRequests] = taskMergeRequests(task);
+  const [milestoneRef, ...moreMilestones] = taskMilestones(task);
+  const [epicRef, ...moreEpics] = taskEpics(task);
   const issue = useStore((s) =>
-    task.issue ? s.issues.repos[task.issue.repo]?.issues.find((i) => i.number === task.issue!.number) : undefined,
+    issueRef ? s.issues.repos[issueRef.repo]?.issues.find((i) => i.number === issueRef.number) : undefined,
   );
-  const milestone = useStore((s) => findMilestone(s.issues, task.milestone));
-  const epic = useStore((s) => findEpic(s.issues, task.epic));
+  const mergeRequest = useStore((s) => findMergeRequest(s.issues, mergeRequestRef));
+  const milestone = useStore((s) => findMilestone(s.issues, milestoneRef));
+  const epic = useStore((s) => findEpic(s.issues, epicRef));
   const highlighted = useStore((s) => s.highlight.includes(task.id));
   const selected = useStore((s) => s.selection.includes(task.id));
   // Titles joined into one string, so the card only re-renders when its blockers change.
@@ -98,9 +115,10 @@ export const TaskCard = memo(function TaskCard({
         {task.priority !== "none" && <PriorityIcon priority={task.priority} />}
         <span>{task.title}</span>
       </div>
-      {(task.issue ||
-        task.milestone ||
-        task.epic ||
+      {(issueRef ||
+        mergeRequestRef ||
+        milestoneRef ||
+        epicRef ||
         task.dueDate ||
         task.checklist.length > 0 ||
         task.description ||
@@ -119,33 +137,43 @@ export const TaskCard = memo(function TaskCard({
               {columnName}
             </span>
           )}
-          {task.issue && (
+          {issueRef && (
             <span
               className={cx("task-issue", issue?.state)}
               title={issue ? issue.title : "Not in the local cache — sync issues"}
             >
               {issue ? <IssueStateIcon issue={issue} size={13} /> : <span className="issue-dot" />}
-              {repoName(task.issue.repo)}#{task.issue.number}
+              {repoName(issueRef.repo)}#{issueRef.number}
             </span>
           )}
-          {task.milestone && (
+          <MoreLinks labels={moreIssues.map((r) => `${repoName(r.repo)}#${r.number}`)} />
+          {mergeRequestRef && (
+            <span className={cx("task-issue", mergeRequest?.state)} title={mergeRequestSummary(mergeRequest)}>
+              {mergeRequest ? <IssueStateIcon issue={mergeRequest} size={13} /> : <span className="issue-dot" />}
+              {mergeRequestLabel(mergeRequestRef)}
+            </span>
+          )}
+          <MoreLinks labels={moreMergeRequests.map(mergeRequestLabel)} />
+          {milestoneRef && (
             <span
               className={cx("task-milestone", milestone?.state)}
               title={milestone ? milestoneSummary(milestone) : "Not in the local cache — sync issues"}
             >
               <Milestone size={12} />
-              {milestone?.title ?? `${repoName(task.milestone.repo)} milestone ${task.milestone.number}`}
+              {milestone?.title ?? `${repoName(milestoneRef.repo)} milestone ${milestoneRef.number}`}
             </span>
           )}
-          {task.epic && (
+          <MoreLinks labels={moreMilestones.map((r) => `${repoName(r.repo)} milestone ${r.number}`)} />
+          {epicRef && (
             <span
               className={cx("task-milestone", epic?.state)}
               title={epic ? `Epic: ${epic.title}` : "Not in the local cache — sync issues"}
             >
               <Layers size={12} />
-              {epic?.title ?? epicLabel(task.epic)}
+              {epic?.title ?? epicLabel(epicRef)}
             </span>
           )}
+          <MoreLinks labels={moreEpics.map(epicLabel)} />
           {task.dueDate && (
             <span className={cx("task-due", due)}>
               <Calendar size={12} />

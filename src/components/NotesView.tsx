@@ -42,7 +42,7 @@ import { colorHex, cx, issueKey, relativeTime } from "../lib/util";
 import { ColorPicker } from "./ColorPicker";
 import { PromoteDialog } from "./PromoteDialog";
 import { IssueChip } from "./DecisionDialog";
-import { IssuePicker } from "./board/TaskDialog";
+import { IssuePicker } from "./board/LinkPickers";
 import { TagInput } from "./TagInput";
 import { InlineEdit, Markdown, Modal, Popover, TagChip, confirm } from "./ui";
 

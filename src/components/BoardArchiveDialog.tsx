@@ -17,6 +17,7 @@ function contents(b: Board) {
     return `${plural(b.plan.steps.length, "step")} · ${resolved}/${total} items done`;
   }
   if (isNotes(b)) return plural(b.notes?.length ?? 0, "note");
+  if (b.kind === "view") return `View only · ${plural(b.columns.length, "column")}`;
   const parts = [plural(Object.keys(b.tasks).length, "task")];
   if (b.archive?.length) parts.push(`${b.archive.length} archived`);
   return parts.join(" · ");

@@ -2087,6 +2087,15 @@ input.board-name {
   flex-shrink: 0;
   opacity: 0.7;
 }
+.gh-label.scoped {
+  padding-right: 0;
+  overflow: hidden;
+}
+.gh-label-value {
+  padding: 0 7px 0 5px;
+  margin-left: 2px;
+  background: color-mix(in srgb, var(--c) 30%, transparent);
+}
 .gh-label.clickable {
   cursor: pointer;
   transition: background 0.12s;
@@ -2144,6 +2153,9 @@ input.board-name {
   white-space: nowrap;
   text-align: left;
   font-family: var(--font, inherit);
+}
+.linked-issue-chip .link-text {
+  flex: 1;
 }
 .milestone-chip.closed .link-text {
   text-decoration: line-through;
@@ -2985,6 +2997,47 @@ input.check-text {
 }
 .side-spacer {
   flex: 1;
+}
+.task-link-kind {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.task-link-kind-label {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.linked-issue-fold {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.linked-issue-fold summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.linked-issue-fold summary::-webkit-details-marker {
+  display: none;
+}
+.linked-issue-fold .fold-chevron {
+  transition: transform 0.12s;
+}
+.linked-issue-fold[open] .fold-chevron {
+  transform: rotate(90deg);
+}
+.linked-issue-fold-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.linked-issue-fold .issue-panel {
+  margin: 0 10px 10px;
 }
 .meta-lines {
   display: flex;
@@ -4141,6 +4194,9 @@ input.check-text {
 .recently-deleted-name {
   font-weight: 550;
 }
+.recently-deleted-expiry {
+  color: var(--danger);
+}
 
 /* ==========================================================================
    Tags
@@ -4171,6 +4227,143 @@ input.check-text {
   color: var(--accent-text);
   flex-shrink: 0;
 }
+.view-board-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rules-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rules-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.rules-row > .field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.rules-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rules-repos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rules-repo {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rules-repo.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.rules-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.token-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  cursor: text;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.token-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* As specific as the app-wide input style, which would otherwise draw a box inside the box. */
+.token-input input:not([type="checkbox"]) {
+  flex: 1 1 100px;
+  width: auto;
+  min-width: 80px;
+  padding: 2px;
+  border: none;
+  outline: none;
+  background: none;
+  box-shadow: none;
+}
+
+.token-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 260px;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.token-option {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.token-option.active {
+  background: var(--surface-2);
+}
+
+.token-menu-note {
+  padding: 6px 8px;
+}
+
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 12px;
+}
+
+.token button {
+  display: inline-flex;
+  padding: 1px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
 .tag-picker-foot {
   display: flex;
   align-items: center;
@@ -4796,6 +4989,8 @@ button.code-ref:hover {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--bg-elev);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
@@ -4820,10 +5015,9 @@ button.code-ref:hover {
 .tag-suggest-row.active {
   background: var(--surface-2);
 }
-.tag-suggest-count {
+.tag-suggest-new {
   font-size: 11px;
   color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   padding-left: 12px;
 }

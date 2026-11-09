@@ -40,12 +40,21 @@ fn vault_key(config: &Value, vault: &Path) -> String {
         .unwrap_or(path)
 }
 
-/// The settings as an agent sees them. `autoSync` is the session vault's (0 when off).
+/// Whether the app syncs `vault` as it closes: the choice made for it, else whether it's on automatic sync (D-28).
+fn syncs_on_close(config: &Value, vault: &Path) -> bool {
+    let key = vault_key(config, vault);
+    config["gitSyncOnClose"][&key]
+        .as_bool()
+        .unwrap_or(config["gitAutoSync"][&key].as_u64().unwrap_or(0) > 0)
+}
+
+/// The settings as an agent sees them. `autoSync` and `syncOnClose` are the session vault's (0 when off).
 pub fn view(config: &Value, vault: Option<&Path>) -> Value {
     let auto = vault
         .map(|v| config["gitAutoSync"][vault_key(config, v)].as_u64().unwrap_or(0))
         .unwrap_or(0);
     json!({
+        "syncOnClose": vault.is_some_and(|v| syncs_on_close(config, v)),
         "theme": config["theme"].as_str().filter(|t| THEMES.contains(t)).unwrap_or("dark"),
         "seasonalThemes": config["seasonalThemes"].as_bool().unwrap_or(false),
         "checkForUpdates": config["checkForUpdates"].as_bool().unwrap_or(true),
@@ -90,13 +99,25 @@ pub fn update(config: &mut Value, vault: Option<&Path>, args: &Value) -> Result<
             map.insert(key, json!(n));
         }
     }
+    if let Some(v) = args.get("syncOnClose") {
+        let on = v.as_bool().ok_or("syncOnClose must be true or false")?;
+        let vault = vault.ok_or("No vault is open, so there is no sync on close to set")?;
+        let key = vault_key(&Value::Object(obj.clone()), vault);
+        let per_vault = obj.entry("gitSyncOnClose").or_insert_with(|| json!({}));
+        if !per_vault.is_object() {
+            *per_vault = json!({});
+        }
+        per_vault.as_object_mut().unwrap().insert(key, json!(on));
+    }
 
     let after = view(config, vault);
-    Ok(["theme", "seasonalThemes", "checkForUpdates", "autoSync"]
-        .into_iter()
-        .filter(|k| before[k] != after[k])
-        .map(String::from)
-        .collect())
+    Ok(
+        ["theme", "seasonalThemes", "checkForUpdates", "autoSync", "syncOnClose"]
+            .into_iter()
+            .filter(|k| before[k] != after[k])
+            .map(String::from)
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -113,7 +134,7 @@ mod tests {
         let vault = Path::new(r"d:\repos\designs\vaults\app\");
         assert_eq!(
             view(&config, Some(vault)),
-            json!({ "theme": "dark", "seasonalThemes": false, "checkForUpdates": true, "autoSync": 10 })
+            json!({ "theme": "dark", "seasonalThemes": false, "checkForUpdates": true, "autoSync": 10, "syncOnClose": true })
         );
         assert_eq!(view(&config, None)["autoSync"], 0);
         assert_eq!(view(&json!({ "theme": "neon" }), None)["theme"], "dark");
@@ -124,7 +145,8 @@ mod tests {
         let vault = Path::new("D:/repos/kb");
         let mut config = json!({ "recentVaults": ["D:/Repos/KB"], "lastVault": "D:/Repos/KB", "theme": "light" });
         let changed = update(&mut config, Some(vault), &json!({ "autoSync": 20, "theme": "light" })).unwrap();
-        assert_eq!(changed, vec!["autoSync"]);
+        // With no choice made, sync on close follows automatic sync.
+        assert_eq!(changed, vec!["autoSync", "syncOnClose"]);
         // Filed under the app's own spelling of the path.
         assert_eq!(config["gitAutoSync"], json!({ "D:/Repos/KB": 20 }));
         assert_eq!(config["lastVault"], "D:/Repos/KB");
@@ -135,7 +157,7 @@ mod tests {
             &json!({ "autoSync": 0, "seasonalThemes": true }),
         )
         .unwrap();
-        assert_eq!(changed, vec!["seasonalThemes", "autoSync"]);
+        assert_eq!(changed, vec!["seasonalThemes", "autoSync", "syncOnClose"]);
         assert_eq!(config["gitAutoSync"], json!({}));
 
         assert!(update(&mut config, Some(vault), &json!({ "theme": "neon" })).is_err());
@@ -143,5 +165,33 @@ mod tests {
         assert!(update(&mut config, Some(vault), &json!({ "autoSync": 5000 })).is_err());
         assert!(update(&mut config, None, &json!({ "autoSync": 5 })).is_err());
         assert!(update(&mut config, Some(vault), &json!({ "checkForUpdates": "no" })).is_err());
+    }
+
+    #[test]
+    fn sync_on_close_follows_automatic_sync_until_chosen() {
+        let vault = Path::new("D:/repos/kb");
+        let on = |c: &Value| view(c, Some(vault))["syncOnClose"].as_bool().unwrap();
+        let mut config = json!({ "recentVaults": ["D:/Repos/KB"] });
+        assert!(!on(&config));
+        update(&mut config, Some(vault), &json!({ "autoSync": 5 })).unwrap();
+        assert!(on(&config));
+        update(&mut config, Some(vault), &json!({ "autoSync": 0 })).unwrap();
+        assert!(!on(&config));
+
+        // Chosen, it no longer depends on automatic sync, either way.
+        let changed = update(&mut config, Some(vault), &json!({ "syncOnClose": true })).unwrap();
+        assert_eq!(changed, vec!["syncOnClose"]);
+        assert_eq!(config["gitSyncOnClose"], json!({ "D:/Repos/KB": true }));
+        assert!(on(&config));
+
+        update(
+            &mut config,
+            Some(vault),
+            &json!({ "autoSync": 5, "syncOnClose": false }),
+        )
+        .unwrap();
+        assert_eq!(config["gitSyncOnClose"], json!({ "D:/Repos/KB": false }));
+        assert!(!on(&config));
+        assert!(update(&mut config, None, &json!({ "syncOnClose": true })).is_err());
     }
 }

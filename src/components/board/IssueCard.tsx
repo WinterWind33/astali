@@ -1,6 +1,7 @@
 import { useDraggable } from "@dnd-kit/core";
 import { Link2, MessageSquare } from "lucide-react";
 import { memo } from "react";
+import { listedSign } from "../../lib/mergeRequests";
 import type { GhIssue } from "../../lib/types";
 import { cx, issueKey, repoName } from "../../lib/util";
 import { GhLabelChip, IssueStateIcon } from "../ui";
@@ -41,7 +42,9 @@ export const IssueCard = memo(function IssueCard({
       <div className="task-meta">
         <span className={cx("task-issue", issue.state)}>
           <IssueStateIcon issue={issue} size={13} />
-          {repoName(issue.repo)}#{issue.number}
+          {repoName(issue.repo)}
+          {listedSign(issue)}
+          {issue.number}
         </span>
         {issue.comments > 0 && (
           <span title={`${issue.comments} comment(s)`}>

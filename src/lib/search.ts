@@ -1,4 +1,5 @@
 import { isGlossary } from "./glossary";
+import { taskIssues } from "./taskRefs";
 import { isNotes } from "./notes";
 import { isPlan } from "./plan";
 import { collectTags } from "./tags";
@@ -286,12 +287,14 @@ export function searchProject(src: SearchSource, query: string): SearchHit[] {
 }
 
 function taskBody(t: Board["tasks"][string]) {
-  const issue = t.issue ? ` #${t.issue.number}` : "";
-  return `${t.description} ${t.labels.join(" ")} ${t.checklist.map((c) => c.text).join(" ")}${issue}`;
+  const issues = taskIssues(t)
+    .map((i) => ` #${i.number}`)
+    .join("");
+  return `${t.description} ${t.labels.join(" ")} ${t.checklist.map((c) => c.text).join(" ")}${issues}`;
 }
 
 function boardKind(b: Board) {
-  return isPlan(b) ? "Plan" : isNotes(b) ? "Notes board" : "Board";
+  return isPlan(b) ? "Plan" : isNotes(b) ? "Notes board" : b.kind === "view" ? "View-only board" : "Board";
 }
 
 /** The kinds in the order their groups are listed, with their headings. */

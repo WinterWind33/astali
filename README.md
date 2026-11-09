@@ -30,12 +30,17 @@ and a built-in MCP server lets Claude or any other AI agent work in it alongside
 ## Features
 
 - **Kanban boards**: projects → boards → columns → tasks, with drag and drop, tags, priorities, due dates,
-  checklists and WIP limits
+  checklists, WIP limits, card colors, multi-selection and board templates
 - **Plans**: ordered steps with nested checklists and open questions, for a feature, an issue or a thesis
 - **Notes boards**: post-its on an endless grid you pan and zoom, which you can promote into tasks, plan steps or decisions
+- **View-only boards**: columns that fill themselves from GitHub and GitLab, by rules you choose
 - **Decisions**: short notes on *why* things are the way they are, searchable by class name or path
-- **GitHub**: read-only issue import, and columns that always show the issues with a given label
+- **GitHub and GitLab**: read-only issues, merge requests, labels, milestones and GitLab epics, linked to your tasks,
+  and columns that always show the issues with a given label
+- **Git sync**: commit, pull and push your vault from the app, by hand or automatically
 - **Glossary**: the terms, acronyms and names a project uses, with what they mean
+- **Search**: find anything across the vault with Ctrl+Shift+F
+- **Archive**: put boards and projects away and restore them whenever you like; deleted projects stay restorable for 30 days
 - **History and undo**: every change, yours or an AI agent's, is recorded and can be undone
 - **Updates**: Astali tells you when a new version is out and shows what's in it before installing
 - Live reload when the vault changes on disk, dark and light themes, custom colors
@@ -63,7 +68,7 @@ and Linux.
 
 ## Development
 
-Requires Node 20+, Rust (stable, MSVC on Windows) and WebView2. Built with **Tauri 2** + **React / TypeScript**.
+Requires Node 20.19+ or 22.12+, Rust (stable, MSVC on Windows) and WebView2. Built with **Tauri 2** + **React / TypeScript**.
 
 ```
 npm install

@@ -1,4 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { taskIssues } from "../lib/taskRefs";
 import {
   BookA,
   ExternalLink,
@@ -32,10 +33,10 @@ import { decisionRef } from "../lib/decisions";
 import { searchTerms } from "../lib/glossary";
 import { collectTags, decisionList, defaultTagColor, hasTag, tagKey, tagOrder } from "../lib/tags";
 import type { Board, Decision, GhIssue, GhLabel, IssueRef, TagRef, Task } from "../lib/types";
-import { colorHex, cx, issueKey, labelUrl, providerName, relativeTime, repoName, repoPath } from "../lib/util";
+import { colorHex, cx, issueKey, labelUrl, providerName, relativeTime, repoKey, repoName, repoPath } from "../lib/util";
 import { ColorPicker } from "./ColorPicker";
 import { TagSortMenu, useTagSort } from "./TagSortMenu";
-import { PriorityIcon } from "./board/TaskCard";
+import { MoreLinks, PriorityIcon } from "./board/TaskCard";
 import { TaskDialog } from "./board/TaskDialog";
 import {
   EmptyState,
@@ -84,7 +85,7 @@ export function TagsView({ selected }: { selected?: TagRef }) {
   const labels = useMemo(() => {
     const out: RepoLabel[] = [];
     for (const r of project?.repos ?? []) {
-      const key = `${r.owner}/${r.repo}`;
+      const key = repoKey(r);
       const rc = issues.repos[key];
       if (!rc) continue;
       const byName = new Map<string, RepoLabel>();
@@ -116,7 +117,7 @@ export function TagsView({ selected }: { selected?: TagRef }) {
       ),
     );
   // Labels stay grouped by repository; the order applies within each one.
-  const repoOrder = new Map(project.repos.map((r, i) => [`${r.owner}/${r.repo}`, i]));
+  const repoOrder = new Map(project.repos.map((r, i) => [repoKey(r), i]));
   const labelOrder = tagOrder<RepoLabel>(
     sort,
     (l) => l.label.name,
@@ -201,7 +202,7 @@ export function TagsView({ selected }: { selected?: TagRef }) {
                       )}
                       onClick={() => select({ kind: "label", repo: l.repo, name: l.label.name })}
                     >
-                      <GhLabelChip label={l.label} />
+                      <GhLabelChip label={l.label} source={l.repo} />
                       <span className="spacer" />
                       <span className="tags-row-count" title="Cached issues and pull requests with this label">
                         {l.issues.length}
@@ -547,8 +548,9 @@ function TaskRow({
   onOpen: () => void;
   onShow: () => void;
 }) {
+  const [issueRef, ...moreIssues] = taskIssues(task);
   const issue = useStore((s) =>
-    task.issue ? s.issues.repos[task.issue.repo]?.issues.find((i) => i.number === task.issue!.number) : undefined,
+    issueRef ? s.issues.repos[issueRef.repo]?.issues.find((i) => i.number === issueRef.number) : undefined,
   );
   const others = task.labels.filter((l) => !hideTag || tagKey(l) !== tagKey(hideTag));
   return (
@@ -556,17 +558,18 @@ function TaskRow({
       {task.priority !== "none" ? <PriorityIcon priority={task.priority} /> : <span className="tags-task-noprio" />}
       <div className="tags-task-text">
         <div className="tags-task-title">{task.title}</div>
-        {(others.length > 0 || task.issue) && (
+        {(others.length > 0 || issueRef) && (
           <div className="task-labels">
             {others.map((l) => (
               <TagChip key={l} tag={l} />
             ))}
-            {task.issue && (
+            {issueRef && (
               <span className={cx("task-issue", issue?.state)}>
-                {issue ? <IssueStateIcon issue={issue} size={12} /> : <ProviderMark repo={task.issue.repo} size={12} />}
-                {repoName(task.issue.repo)}#{task.issue.number}
+                {issue ? <IssueStateIcon issue={issue} size={12} /> : <ProviderMark repo={issueRef.repo} size={12} />}
+                {repoName(issueRef.repo)}#{issueRef.number}
               </span>
             )}
+            <MoreLinks labels={moreIssues.map((r) => `${repoName(r.repo)}#${r.number}`)} />
           </div>
         )}
       </div>

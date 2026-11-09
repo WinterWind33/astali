@@ -28,7 +28,18 @@ import {
   fetchRepoMilestones,
   fetchTokenStatus,
   repoChanged,
+  searchRepoIssues,
 } from "./github";
+import {
+  type GitlabQuery,
+  githubQueries,
+  gitlabQueries,
+  isView,
+  issuesAtCap,
+  mergeFound,
+  mergeRequestsAtCap,
+  remoteRules,
+} from "./viewBoards";
 import { decisionFileName, decisionLength, normalizeDecision } from "./decisions";
 import { doneColumn, followLabels, isViewColumn } from "./labelColumns";
 import { hasTag, tagColumnName, tagColor, tagKey } from "./tags";
@@ -47,6 +58,7 @@ import type {
   DecisionEntry,
   GhIssue,
   GhLabel,
+  GhMilestone,
   GlEpic,
   IssueComment,
   GitBranches,
@@ -58,6 +70,7 @@ import type {
   RepoInfo,
   IssueCache,
   IssueRef,
+  IssueRules,
   BoardGroup,
   Project,
   ProjectEntry,
@@ -70,7 +83,9 @@ import type {
   Task,
   Theme,
 } from "./types";
-import { isGitlab, now, repoKey, repoPath, slugify, uid } from "./util";
+import { isGitlab, issueKey, now, repoKey, repoPath, slugify, uid } from "./util";
+import { listedKey, mergeRequestKey } from "./mergeRequests";
+import { taskIssues, taskMergeRequests } from "./taskRefs";
 import { compareVersions, releasesBetween } from "./changelog";
 import {
   boardFromTemplate,
@@ -95,6 +110,7 @@ import {
   newColumn,
   newGlossaryBoard,
   newNotesBoard,
+  newViewBoard,
   newPlanBoard,
   normalizeBoard,
   normalizeProject,
@@ -117,6 +133,8 @@ const DEFAULT_CONFIG: AppConfig = {
   checkForUpdates: true,
   dismissedGitPrompts: [],
   gitAutoSync: {},
+  gitSyncOnClose: {},
+  deletedProjectsSince: {},
   favoriteColors: [],
 };
 
@@ -137,6 +155,8 @@ interface State {
   config: AppConfig;
   vault: string | null;
   projects: ProjectEntry[];
+  /** Archived projects, kept out of `projects` so nothing (home, search, opening) reaches them until restored. */
+  archivedProjects: ProjectEntry[];
   route: Route;
   /** Boards of the currently open project, keyed by board id. */
   boards: Record<string, BoardEntry>;
@@ -185,6 +205,7 @@ const initial: State = {
   config: DEFAULT_CONFIG,
   vault: null,
   projects: [],
+  archivedProjects: [],
   route: { name: "home" },
   boards: {},
   archivedBoards: {},
@@ -528,11 +549,11 @@ export async function openVault(path: string) {
   // From here on the backend reads and writes only inside this folder.
   await invoke("open_vault", { path: vault });
   const name = await ensureVault(vault);
-  const projects = await loadProjects(vault);
+  const all = await loadProjects(vault);
   const templates = await loadTemplates(vault).catch(() => []);
   set({
     vault,
-    projects,
+    ...splitProjects(all),
     templates,
     route: { name: "home" },
     boards: {},
@@ -546,12 +567,16 @@ export async function openVault(path: string) {
   await Promise.all([refreshGit(), refreshRepo()]);
   const { config } = get();
   const recentVaults = [vault, ...config.recentVaults.filter((v) => v !== vault)].slice(0, 8);
+  // Projects deleted before this version have no 30 days behind them yet: their wait starts today.
+  const since = config.deletedProjectsSince[vault] ?? Date.now();
   await saveConfig({
     ...config,
     lastVault: vault,
     recentVaults,
     vaultNames: withVaultName(config.vaultNames, vault, name, recentVaults),
+    deletedProjectsSince: { ...config.deletedProjectsSince, [vault]: since },
   });
+  await invoke("history_purge_deleted", { vault, since }).catch((e) => console.error("purge failed", e));
   await invoke("watch_vault", { path: vault }).catch((e) => console.error("watch failed", e));
 }
 
@@ -578,6 +603,7 @@ export async function closeVault() {
   set({
     vault: null,
     projects: [],
+    archivedProjects: [],
     route: { name: "home" },
     boards: {},
     archivedBoards: {},
@@ -813,6 +839,38 @@ function runAutoSync() {
   quickSync(true);
 }
 
+/** Whether `vault` syncs as the app closes: the choice made for it, else whether it's on automatic sync. */
+export const syncsOnClose = (config: AppConfig, vault: string) =>
+  config.gitSyncOnClose[vault] ?? !!config.gitAutoSync[vault];
+
+/** Turns the sync as the app closes on or off for the open vault. */
+export function setSyncOnClose(on: boolean) {
+  const vault = requireVault();
+  const config = get().config;
+  saveConfig({ ...config, gitSyncOnClose: { ...config.gitSyncOnClose, [vault]: on } });
+}
+
+/** How long a closing app waits for its last sync; the window is already gone by then. */
+const CLOSE_SYNC_TIMEOUT = 30_000;
+
+/**
+ * Runs as the window closes: saves pending edits and, for a vault set to sync on close, syncs
+ * whatever the change count. The window hides first, and a failure or a slow network never
+ * holds the app open. Never throws, so the window always goes.
+ */
+export async function finishBeforeClosing(hideWindow: () => Promise<void>) {
+  await flushWrites().catch(() => {});
+  const s = get();
+  const vault = s.vault;
+  const wanted = !!vault && syncsOnClose(s.config, vault) && vaultTracked(s) && !s.gitConflicts && !s.repo?.conflicted;
+  if (!wanted) return;
+  await hideWindow().catch(() => {});
+  await Promise.race([
+    invoke("git_sync_on_close", { vault, message: SYNC_MESSAGE }).catch((e) => console.error("close sync failed", e)),
+    new Promise((done) => setTimeout(done, CLOSE_SYNC_TIMEOUT)),
+  ]);
+}
+
 export function forgetRecentVault(path: string) {
   const c = get().config;
   set((s) => ({ missingVaults: s.missingVaults.filter((v) => v !== path) }));
@@ -845,6 +903,14 @@ export async function openRecentVault(path: string) {
 }
 
 // ---------------------------------------------------------------- projects
+
+/** Splits project entries into the active ones and the archived ones. */
+function splitProjects(all: ProjectEntry[]) {
+  return {
+    projects: all.filter((e) => !e.project.archivedAt),
+    archivedProjects: all.filter((e) => e.project.archivedAt),
+  };
+}
 
 function persistProject(entry: ProjectEntry) {
   scheduleWrite(projectFile(requireVault(), entry.dir), entry.project);
@@ -1072,17 +1138,55 @@ export function deleteTag(tag: string): TagChange {
 
 export async function deleteProject(id: string) {
   const vault = requireVault();
-  const entry = get().projects.find((p) => p.project.id === id);
+  const entry = [...get().projects, ...get().archivedProjects].find((p) => p.project.id === id);
   if (!entry) return;
   const dir = projectDir(vault, entry.dir);
   cancelWrites(dir);
   await removePath(dir);
   set((s) => ({
     projects: s.projects.filter((p) => p.project.id !== id),
+    archivedProjects: s.archivedProjects.filter((p) => p.project.id !== id),
     route: s.route.name === "project" && s.route.projectId === id ? { name: "home" } : s.route,
   }));
   toast(`Deleted “${entry.project.name}”`);
   refreshGit();
+}
+
+/** Removes a deleted project for good without waiting for its 30 days: nothing of it is left to restore. */
+export async function purgeDeletedProject(id: string, name: string) {
+  try {
+    await invoke("history_purge_project", { vault: requireVault(), project: id });
+    set((s) => ({ historyRev: s.historyRev + 1 }));
+    toast(`Permanently deleted “${name}”`);
+  } catch (e) {
+    toast(`Could not delete “${name}”: ${e}`, "error");
+  }
+}
+
+/**
+ * Archives a project or brings it back. Its folder stays where it is and only `archivedAt` changes,
+ * like an archived board (D-16), so history and undo cover it.
+ */
+function setProjectArchived(id: string, archived: boolean) {
+  const s = get();
+  const entry = (archived ? s.projects : s.archivedProjects).find((e) => e.project.id === id);
+  if (!entry) return null;
+  const { archivedAt: _, ...rest } = entry.project;
+  const project: Project = archived ? { ...rest, archivedAt: now(), updatedAt: now() } : { ...rest, updatedAt: now() };
+  const next: ProjectEntry = { ...entry, project };
+  set(splitProjects([...s.projects, ...s.archivedProjects].map((e) => (e === entry ? next : e))));
+  persistProject(next);
+  return project;
+}
+
+export function archiveProject(id: string) {
+  const p = setProjectArchived(id, true);
+  if (p) toast(`Archived “${p.name}”. Find it under Archived on this page.`);
+}
+
+export function restoreProject(id: string) {
+  const p = setProjectArchived(id, false);
+  if (p) toast(`Restored “${p.name}”`, "success");
 }
 
 export function goHome() {
@@ -1176,16 +1280,18 @@ export function patchBoard(boardId: string, fn: (b: Board) => Board) {
   persistBoard(next);
 }
 
-/** Creates a kanban board, a plan board when `plan` is given, or a notes board for "notes". */
-export async function createBoard(name: string, plan?: Plan | "notes") {
+/** Creates a kanban board, a plan board when `plan` is given, or a notes or view-only board for those words. */
+export async function createBoard(name: string, plan?: Plan | "notes" | "view") {
   const p = currentProject();
   if (!p) return;
   const board =
     plan === "notes"
       ? newNotesBoard(name.trim() || "Untitled notes")
-      : plan
-        ? newPlanBoard(name.trim() || "Untitled plan", plan)
-        : newBoard(name.trim() || "Untitled board");
+      : plan === "view"
+        ? newViewBoard(name.trim() || "Untitled view")
+        : plan
+          ? newPlanBoard(name.trim() || "Untitled plan", plan)
+          : newBoard(name.trim() || "Untitled board");
   const entry: BoardEntry = { board, file: boardFileName(board) };
   await writeNow(boardFile(requireVault(), p.dir, entry.file), board);
   set((s) => ({ boards: { ...s.boards, [board.id]: entry } }));
@@ -1521,6 +1627,12 @@ export function addTagColumn(boardId: string, tags: string[], match: "any" | "al
   return col.id;
 }
 
+export function addViewColumn(boardId: string, name: string, color: Color, rules: IssueRules) {
+  const col: Column = { ...newColumn(name.trim() || "New column", color), source: { kind: "query", rules } };
+  patchBoard(boardId, (b) => ({ ...b, columns: [...b.columns, col] }));
+  return col.id;
+}
+
 export function updateColumn(
   boardId: string,
   columnId: string,
@@ -1629,24 +1741,24 @@ export function addTask(boardId: string, columnId: string, partial: Partial<Task
 export function addIssueTasks(
   boardId: string,
   columnId: string,
-  issues: Pick<GhIssue, "repo" | "number" | "title" | "epic">[],
+  issues: Pick<GhIssue, "repo" | "number" | "title" | "epic" | "isPullRequest">[],
   index?: number,
 ) {
   const board = get().boards[boardId]?.board;
   const target = board?.columns.find((c) => c.id === columnId);
   if (!board || !target || isViewColumn(target)) return 0;
-  const onBoard = new Set(
-    Object.values(board.tasks).flatMap((t) => (t.issue ? [`${t.issue.repo}#${t.issue.number}`] : [])),
-  );
+  const onBoard = new Set(Object.values(board.tasks).flatMap((t) => [...linkedKeys(t)]));
   const created: Task[] = [];
   for (const i of issues) {
-    const key = `${i.repo}#${i.number}`;
+    const key = listedKey(i);
     if (onBoard.has(key)) continue;
     onBoard.add(key);
+    const ref = { repo: i.repo, number: i.number };
     created.push(
       normalizeTask({
         title: i.title,
-        issue: { repo: i.repo, number: i.number },
+        // GitLab numbers merge requests apart: as an `issue` this one would point at the issue with its number.
+        ...(i.isPullRequest && isGitlab(i.repo) ? { mergeRequest: ref } : { issue: ref }),
         // A GitLab issue in an epic puts its task in it too.
         ...(i.epic ? { epic: { group: i.epic.group, iid: i.epic.iid } } : {}),
         labels: [],
@@ -1848,9 +1960,9 @@ function issueState(cache: IssueCache, ref: IssueRef) {
 }
 
 /**
- * Moves into the done column the tasks of `boardId` whose linked issue is closed: every one when `prev`
- * is absent (auto done was just turned on), else only those whose issue closed since `prev`, so a task
- * taken back out of the done column stays out. Returns how many it moved.
+ * Moves into the done column the tasks of `boardId` whose linked issues are all closed: every one when
+ * `prev` is absent (auto done was just turned on), else only those with one closed since `prev`, so a
+ * task taken back out of the done column stays out. Returns how many it moved.
  */
 function finishClosedIssueTasks(boardId: string, prev?: IssueCache): number {
   const board = get().boards[boardId]?.board;
@@ -1861,9 +1973,9 @@ function finishClosedIssueTasks(boardId: string, prev?: IssueCache): number {
   for (const col of board.columns) {
     if (col.id === done.id || isViewColumn(col)) continue;
     for (const id of col.taskIds) {
-      const ref = board.tasks[id]?.issue;
-      if (!ref || issueState(cache, ref) !== "closed") continue;
-      if (prev && issueState(prev, ref) !== "open") continue;
+      const refs = taskIssues(board.tasks[id] ?? {});
+      if (!refs.length || refs.some((r) => issueState(cache, r) !== "closed")) continue;
+      if (prev && !refs.some((r) => issueState(prev, r) === "open")) continue;
       moveTask(boardId, id, done.id, Number.MAX_SAFE_INTEGER);
       moved++;
     }
@@ -1955,17 +2067,26 @@ export function moveTaskToBoard(fromBoardId: string, taskId: string, toBoardId: 
 }
 
 /** Board/column location of every task linked to an issue, keyed "owner/repo#n". */
+/** The keys (see `listedKey`) of what a task links to; on GitHub an issue and a pull request can be one key. */
+function linkedKeys(t: Task) {
+  const keys = new Set<string>();
+  for (const r of taskIssues(t)) keys.add(issueKey(r));
+  for (const r of taskMergeRequests(t)) keys.add(mergeRequestKey(r));
+  return keys;
+}
+
 export function linkedIssueIndex(boards: Record<string, BoardEntry>) {
   const idx = new Map<string, { boardId: string; boardName: string; taskId: string; columnName: string }[]>();
   for (const { board } of Object.values(boards)) {
     for (const col of board.columns) {
       for (const tid of col.taskIds) {
         const t = board.tasks[tid];
-        if (!t?.issue) continue;
-        const key = `${t.issue.repo}#${t.issue.number}`;
-        const list = idx.get(key) ?? [];
-        list.push({ boardId: board.id, boardName: board.name, taskId: tid, columnName: col.name });
-        idx.set(key, list);
+        if (!t) continue;
+        for (const key of linkedKeys(t)) {
+          const list = idx.get(key) ?? [];
+          list.push({ boardId: board.id, boardName: board.name, taskId: tid, columnName: col.name });
+          idx.set(key, list);
+        }
       }
     }
   }
@@ -2030,7 +2151,9 @@ export async function deleteDecision(id: string) {
 /** What the backend fetches of a GitLab project (`gl.rs`). Its errors start with the HTTP status. */
 interface GitlabFetch {
   issues: GhIssue[];
+  mergeRequests: GhIssue[];
   labels: GhLabel[];
+  milestones: GhMilestone[];
   epics: GlEpic[];
   epicsError?: string;
 }
@@ -2065,6 +2188,132 @@ export async function loadIssueComments(issue: Pick<GhIssue, "repo" | "number">)
   }
 }
 
+/** The numbers of a repository's issues and merge requests that tasks link to, kept across syncs. */
+function linkedNumbers(repo: string) {
+  const issues = new Set<number>();
+  const mergeRequests = new Set<number>();
+  for (const { board } of Object.values(get().boards))
+    for (const t of Object.values(board.tasks)) {
+      for (const r of taskIssues(t)) if (r.repo === repo) issues.add(r.number);
+      for (const r of taskMergeRequests(t)) if (r.repo === repo) mergeRequests.add(r.number);
+    }
+  return { linkedIssues: [...issues], linkedMergeRequests: [...mergeRequests] };
+}
+
+/**
+ * Fetches one GitLab issue or merge request by number and adds it to the cache, for those the capped
+ * sync doesn't list. The next syncs keep it if a task links it. Null, after a toast, when it failed.
+ */
+export async function fetchUnlistedIssue(repo: string, number: number, mergeRequest = false) {
+  const p = currentProject();
+  if (!p) return null;
+  try {
+    const got = await invoke<GhIssue>("gitlab_fetch_item", {
+      path: repoPath(repo),
+      iid: number,
+      mergeRequest,
+      token: get().config.gitlabToken.trim(),
+    });
+    if (currentProject()?.project.id !== p.project.id) return null;
+    const rc = get().issues.repos[repo] ?? { fetchedAt: now(), issues: [] };
+    const field = mergeRequest ? "mergeRequests" : "issues";
+    const list = [...(rc[field] ?? []).filter((i) => i.number !== number), got];
+    const cache: IssueCache = { repos: { ...get().issues.repos, [repo]: { ...rc, [field]: list } } };
+    set({ issues: cache });
+    await writeNow(issueCacheFile(requireVault(), p.dir), cache);
+    return got;
+  } catch (e) {
+    toast(new GitlabError(String(e)).message, "error");
+    return null;
+  }
+}
+
+/** Most GitLab queries view boards send per repository in one go. */
+const VIEW_QUERY_LIMIT = 40;
+/** GitHub search result pages one sync may read: it allows 30 requests a minute signed in, 10 signed out. */
+const searchBudget = () => ({ left: get().config.githubToken.trim() ? 25 : 8 });
+
+const openViewBoards = () =>
+  Object.values(get().boards)
+    .map((e) => e.board)
+    .filter(isView);
+
+/**
+ * What these view boards can match in a repository beyond its capped lists, added to them (D-25). A query that
+ * fails only costs the older items it would have found, so the error is returned rather than thrown.
+ */
+async function withViewResults(
+  r: RepoRef,
+  listed: Pick<RepoCache, "issues" | "mergeRequests">,
+  boards: Board[],
+  budget: { left: number },
+): Promise<Pick<RepoCache, "issues" | "mergeRequests"> & { failed?: string }> {
+  const key = repoKey(r);
+  const pairs = boards.flatMap(remoteRules);
+  let { issues, mergeRequests } = listed;
+  let failed: string | undefined;
+  if (r.provider === "gitlab") {
+    const wanted = new Map<string, GitlabQuery>();
+    for (const [a, b] of pairs)
+      for (const q of gitlabQueries(key, a, b))
+        if (q.mergeRequest ? mergeRequestsAtCap(listed) : issuesAtCap(r, listed)) wanted.set(JSON.stringify(q), q);
+    for (const q of [...wanted.values()].slice(0, VIEW_QUERY_LIMIT)) {
+      try {
+        const found = await invoke<GhIssue[]>("gitlab_query_items", {
+          path: repoPath(key),
+          mergeRequest: q.mergeRequest,
+          params: q.params,
+          token: get().config.gitlabToken.trim(),
+        });
+        if (q.mergeRequest) mergeRequests = mergeFound(mergeRequests ?? [], found);
+        else issues = mergeFound(issues, found);
+      } catch (e) {
+        failed = new GitlabError(String(e)).message;
+      }
+    }
+  } else if (issuesAtCap(r, listed)) {
+    for (const q of new Set(pairs.flatMap(([a, b]) => githubQueries(key, a, b)))) {
+      if (budget.left <= 0) break;
+      try {
+        issues = mergeFound(issues, await searchRepoIssues(key, q, get().config.githubToken, budget));
+      } catch (e) {
+        failed = (e as Error).message;
+      }
+    }
+  }
+  return { issues, mergeRequests, failed };
+}
+
+/** After a view board's rules changed: fetches what they match past the capped lists of its repositories. */
+export async function refreshViewBoard(boardId: string) {
+  const p = currentProject();
+  const board = get().boards[boardId]?.board;
+  if (!p || !board || !isView(board) || get().syncing) return;
+  const repos = p.project.repos.filter((r) => {
+    const c = get().issues.repos[repoKey(r)];
+    return c && (issuesAtCap(r, c) || mergeRequestsAtCap(c));
+  });
+  if (!repos.length) return;
+  set({ syncing: true });
+  const budget = searchBudget();
+  const results = await Promise.all(
+    repos.map(
+      async (r) => [repoKey(r), await withViewResults(r, get().issues.repos[repoKey(r)], [board], budget)] as const,
+    ),
+  );
+  if (currentProject()?.project.id === p.project.id) {
+    const updated = { ...get().issues.repos };
+    for (const [key, { failed, ...found }] of results) {
+      if (updated[key]) updated[key] = { ...updated[key], ...found };
+      if (failed) toast(`${key}: ${failed}`, "error");
+    }
+    const cache: IssueCache = { repos: updated };
+    set({ issues: cache });
+    await writeNow(issueCacheFile(requireVault(), p.dir), cache);
+  }
+  set({ syncing: false });
+}
+
 /** Fetches a linked repository, whichever provider it is on. */
 async function fetchRepo(r: RepoRef): Promise<Omit<RepoCache, "fetchedAt">> {
   const { githubToken, gitlabToken } = get().config;
@@ -2072,11 +2321,18 @@ async function fetchRepo(r: RepoRef): Promise<Omit<RepoCache, "fetchedAt">> {
     const got = await invoke<GitlabFetch>("gitlab_fetch_project", {
       path: repoPath(repoKey(r)),
       token: gitlabToken.trim(),
+      ...linkedNumbers(repoKey(r)),
     }).catch((e) => {
       throw new GitlabError(String(e));
     });
     if (got.epicsError) console.warn(`${repoKey(r)}: epics not read`, got.epicsError);
-    return { issues: got.issues, labels: got.labels, epics: got.epics };
+    return {
+      issues: got.issues,
+      mergeRequests: got.mergeRequests,
+      labels: got.labels,
+      epics: got.epics,
+      milestones: got.milestones,
+    };
   }
   // Records the change markers first, so a change made during the fetch is seen by the next poll.
   await repoChanged(r, githubToken);
@@ -2100,12 +2356,16 @@ export async function syncIssues(opts: { quiet?: boolean } = {}) {
   const repos: IssueCache["repos"] = {};
   let failures = 0;
   let total = 0;
+  const views = openViewBoards();
+  const budget = searchBudget();
   await Promise.all(
     p.project.repos.map(async (r) => {
       const key = repoKey(r);
       try {
         const got = await fetchRepo(r);
-        repos[key] = { fetchedAt: now(), ...got };
+        const { failed, ...found } = await withViewResults(r, got, views, budget);
+        if (failed) console.warn(`${key}: view board query failed`, failed);
+        repos[key] = { fetchedAt: now(), ...got, ...found };
         total += got.issues.length;
       } catch (e) {
         failures++;
@@ -2116,6 +2376,7 @@ export async function syncIssues(opts: { quiet?: boolean } = {}) {
         repos[key] = {
           fetchedAt: prev?.fetchedAt ?? now(),
           issues: prev?.issues ?? [],
+          mergeRequests: prev?.mergeRequests,
           labels: prev?.labels,
           milestones: prev?.milestones,
           epics: prev?.epics,
@@ -2279,7 +2540,8 @@ async function refreshNow(changed: string[]) {
     const ours = await oursOnDisk(fresh.map((e) => projectFile(vault, e.dir)));
     // Picked against the state as it is now: the user may have changed things while we were reading.
     const s = get();
-    const current = new Map(s.projects.map((e) => [e.dir, e]));
+    const known = [...s.projects, ...s.archivedProjects];
+    const current = new Map(known.map((e) => [e.dir, e]));
     const merged = fresh.map((e) => {
       const mine = current.get(e.dir);
       return mine && keepMine(projectFile(vault, e.dir), ours) ? mine : e;
@@ -2289,15 +2551,17 @@ async function refreshNow(changed: string[]) {
         .map((e) => e.dir)
         .sort()
         .join("|") !==
-      s.projects
+      known
         .map((e) => e.dir)
         .sort()
         .join("|");
-    set({ projects: merged });
+    // An archive, a restore or an undo of either made outside the app moves a project from one side to the other.
+    const split = splitProjects(merged);
+    set(split);
     if (dirsChanged) refreshGit();
     if (
       s.route.name === "project" &&
-      !merged.some((e) => e.project.id === (s.route as { projectId: string }).projectId)
+      !split.projects.some((e) => e.project.id === (s.route as { projectId: string }).projectId)
     )
       goHome();
   }

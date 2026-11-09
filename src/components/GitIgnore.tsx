@@ -1,6 +1,6 @@
 import { EyeOff, GitBranch, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { dismissGitPrompt, setAutoSync, setGitIgnored, useStore } from "../lib/store";
+import { dismissGitPrompt, setAutoSync, setGitIgnored, setSyncOnClose, syncsOnClose, useStore } from "../lib/store";
 import type { GitIgnoreMode, GitStatus } from "../lib/types";
 import { cx } from "../lib/util";
 import { Modal, ModalHeader } from "./ui";
@@ -138,6 +138,7 @@ const AUTO_SYNC_MAX = 1000;
 export function GitSettings() {
   const git = useStore((s) => s.git);
   const autoSync = useStore((s) => (s.vault ? (s.config.gitAutoSync[s.vault] ?? 0) : 0));
+  const syncOnClose = useStore((s) => !!s.vault && syncsOnClose(s.config, s.vault));
   const [open, setOpen] = useState(false);
   if (!git) return null;
   return (
@@ -180,12 +181,14 @@ export function GitSettings() {
             <RefreshCw size={15} /> Automatic sync
           </h4>
           <p className="muted small">
-            The vault's files are committed with the repository, so its boards can travel through git to your other
-            computers and to the people you work with. Astali can sync them for you: after the number of changes you
-            pick, once you pause, it commits the vault's files, pulls and pushes. Other changes in the repository are
-            never committed for you.
+            Astali can commit the vault's files, pull and push for you, so your boards reach your other computers and
+            the people you work with. Other changes in the repository are never committed.
           </p>
           <AutoSyncField every={autoSync} />
+          <label className="toggle" style={{ color: "var(--text-dim)", fontSize: 12.5, marginTop: 8 }}>
+            <input type="checkbox" checked={syncOnClose} onChange={(e) => setSyncOnClose(e.target.checked)} />
+            Sync when closing Astali
+          </label>
         </section>
       )}
     </>

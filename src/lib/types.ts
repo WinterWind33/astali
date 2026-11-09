@@ -31,6 +31,8 @@ export interface Project {
   boardOrder: string[];
   /** Sidebar groups of boards, one level deep, each shown where its first board is in `boardOrder`; absent when none. */
   boardGroups?: BoardGroup[];
+  /** When the project was archived: it is then held apart (`archivedProjects` in the store) until restored. */
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,7 +91,50 @@ export interface TagSource {
   match: "any" | "all";
 }
 
-export type ColumnSource = LabelSource | TagSource;
+/** A column of a view board: shows the board's cards passing these rules. */
+export interface QuerySource {
+  kind: "query";
+  rules: IssueRules;
+}
+
+export type ColumnSource = LabelSource | TagSource | QuerySource;
+
+/** Which labels an item of one host must carry. */
+export interface LabelRule {
+  /** As typed; matched case-insensitively. Empty means no requirement. */
+  names: string[];
+  /** "any": one of `names` is enough; "all": every one of them. */
+  match: "any" | "all";
+  /** An item carrying one of these doesn't pass. */
+  exclude: string[];
+}
+
+/** Whether an item must have a milestone or epic, or which. */
+export interface PresenceRule {
+  /** "any": no requirement; "has": any one; "none": without one; "is": one of `names`, by title. */
+  mode: "any" | "has" | "none" | "is";
+  names: string[];
+}
+
+/** Conditions on GitHub and GitLab items, all of which must hold; see src/lib/viewBoards.ts. */
+export interface IssueRules {
+  /** Repository keys (`repoKey`); empty means every repository of the project. */
+  repos: string[];
+  /** "merge" is merge requests and pull requests. */
+  type: "issues" | "merge" | "both";
+  state: "open" | "closed" | "all";
+  githubLabels: LabelRule;
+  gitlabLabels: LabelRule;
+  milestone: PresenceRule;
+  /** Only applies to GitLab items: GitHub has no epics. */
+  epic: PresenceRule;
+  /** One of these must be assigned; empty means no requirement. */
+  assignees: string[];
+  /** One of these must be the author; empty means no requirement. */
+  authors: string[];
+}
+
+export type ViewSort = "updated" | "created" | "title";
 
 export type Priority = "none" | "low" | "medium" | "high" | "urgent";
 
@@ -133,10 +178,20 @@ export interface Task {
   labels: string[];
   dueDate: string | null;
   issue: IssueRef | null;
-  /** The GitHub milestone the task belongs to; absent (or null) when none. */
+  /** The GitLab merge request or GitHub pull request of the task; absent (or null) when none. */
+  mergeRequest?: IssueRef | null;
+  /** The GitHub or GitLab milestone the task belongs to; absent (or null) when none. */
   milestone?: MilestoneRef | null;
   /** The GitLab epic the task belongs to; absent (or null) when none. */
   epic?: EpicRef | null;
+  /** Issues linked after `issue`; absent when none. Read links through `taskRefs`. */
+  moreIssues?: IssueRef[];
+  /** Merge or pull requests linked after `mergeRequest`; absent when none. */
+  moreMergeRequests?: IssueRef[];
+  /** Milestones after `milestone`, each of another repository; absent when none. */
+  moreMilestones?: MilestoneRef[];
+  /** Epics after `epic`, each of another group; absent when none. */
+  moreEpics?: EpicRef[];
   /** The card's background color; absent (or null) for the plain card. */
   color?: Color | null;
   checklist: ChecklistItem[];
@@ -227,9 +282,15 @@ export interface Board {
   description: string;
   /**
    * "plan" boards hold a `plan`, "notes" boards hold `notes`, "glossary" boards hold `terms`, instead
-   * of columns and tasks; absent means a kanban board.
+   * of columns and tasks; "view" boards have only columns, of GitHub and GitLab items picked by rules.
+   * Absent means a kanban board.
    */
-  kind?: "plan" | "notes" | "glossary";
+  kind?: "plan" | "notes" | "glossary" | "view";
+  /** What every card of a view board must pass, on top of its column's rules. */
+  viewRules?: IssueRules;
+  /** On a view board, a card shows only in the first column it matches. Absent when it shows in each. */
+  viewFirstMatch?: boolean;
+  viewSort?: ViewSort;
   plan?: Plan;
   /** Post-its of a notes board, bottom to top (the last one is drawn over the others). */
   notes?: Note[];
@@ -374,6 +435,8 @@ export interface GhMilestone {
 export interface RepoCache {
   fetchedAt: string;
   issues: GhIssue[];
+  /** GitLab only: merge requests, numbered apart from issues. GitHub's pull requests are in `issues`. */
+  mergeRequests?: GhIssue[];
   /** Every label of the repository; missing in caches written before label columns existed. */
   labels?: GhLabel[];
   /** Every milestone of the repository, open and closed; missing in caches written before 1.10.0. */
@@ -434,6 +497,10 @@ export interface AppConfig {
   dismissedGitPrompts: string[];
   /** Per vault tracked in git: sync (commit, pull, push) after this many changes made in the app. */
   gitAutoSync: Record<string, number>;
+  /** Per vault: whether it syncs as the app closes. Without a choice, it does if it's on automatic sync (D-28). */
+  gitSyncOnClose: Record<string, boolean>;
+  /** Per vault: when the 30-day wait of deleted projects began (Unix ms), so older deletions wait from then. */
+  deletedProjectsSince: Record<string, number>;
   favoriteColors: FavoriteColor[];
 }
 

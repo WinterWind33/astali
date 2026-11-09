@@ -7,7 +7,7 @@ import { createDecision, currentProject, decisionFits, toast, updateDecision, us
 import { tagKey } from "../lib/tags";
 import type { Decision, GhIssue, IssueRef } from "../lib/types";
 import { cx, issueKey, issueUrl, repoName } from "../lib/util";
-import { IssuePicker } from "./board/TaskDialog";
+import { IssuePicker } from "./board/LinkPickers";
 import { TagInput } from "./TagInput";
 import { IssueStateIcon, Modal, ModalHeader, Popover, ProviderMark } from "./ui";
 

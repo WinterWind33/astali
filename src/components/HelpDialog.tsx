@@ -119,8 +119,8 @@ const PAGES: HelpPage[] = [
         term: "Archive and restore",
         text: (
           <>
-            Archived boards wait behind the archive button next to <b>Boards</b>. A deleted project comes back from{" "}
-            <b>Recently deleted</b> on the home page.
+            Archived boards wait behind the archive button next to <b>Boards</b>. Archived projects are listed on the
+            home page. A deleted project comes back from <b>Recently deleted</b> there, for 30 days.
           </>
         ),
       },
@@ -199,7 +199,7 @@ const PAGES: HelpPage[] = [
         text: (
           <>
             Suggestions appear as you type: arrows move, <kbd>Enter</kbd> adds, <kbd>Esc</kbd> closes the list. A task
-            can also link a GitHub or GitLab issue, and a GitLab epic.
+            can also link a GitHub or GitLab issue, a merge or pull request, and a GitLab epic.
           </>
         ),
       },
@@ -525,7 +525,8 @@ const PAGES: HelpPage[] = [
     ],
     tip: (
       <>
-        <b>Settings → Git → Automatic sync</b> syncs by itself after the number of changes you pick.
+        <b>Settings → Git → Automatic sync</b> syncs by itself after the number of changes you pick, when you close
+        Astali, or both.
       </>
     ),
   },

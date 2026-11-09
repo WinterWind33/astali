@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.12.0] - 2026-11-09
+
+### Added
+
+- **View-only boards**: fill a board from GitHub and GitLab with columns you define by labels, milestone, epic and more.
+- Add a column for a label to a view-only board in one click.
+- **Lighter task sidebar**: tasks start with column, priority and tags; add the rest from a menu grouped by topic.
+- **Several links per task**: link any number of issues and merge requests, and a milestone or epic per repository or group.
+- **GitLab milestones**: sync a GitLab project's milestones and link tasks to them.
+- **Merge requests**: link a GitLab merge request or GitHub pull request to a task and see its state on the card.
+- **Older GitLab issues**: fetch an issue or merge request by number when a large project's sync doesn't list it.
+- **Scoped labels**: GitLab's `scope::value` labels show their two parts.
+- **Archive projects**: put a project away from the home page and restore it whenever you like.
+- **Sync on close**: sync a vault when you close Astali, with or without automatic sync; set it under Settings → Git.
+
+### Changed
+
+- Deleted projects can be restored for 30 days, then are permanently deleted; "Delete now" does it sooner.
+- The tag list now scrolls through every tag and puts your recent ones on top.
+
+### Fixed
+
+- GitLab labels now appear in the Tags view.
+- The Issues view names merge or pull requests after each repository's host, and now lists GitLab merge requests.
+
+### Security
+
+- Updated the library behind app updates to fix security advisories.
+- A vault from someone else can no longer point a GitHub sync away from its repositories.
+
 ## [1.11.0] - 2026-11-03
 
 ### Added

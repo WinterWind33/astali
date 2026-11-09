@@ -1,4 +1,5 @@
 import { isViewColumn } from "./labelColumns";
+import { issuesPatch } from "./taskRefs";
 import { NOTE_WIDTH } from "./notes";
 import { newStep } from "./plan";
 import { definitionLength, findTerm } from "./glossary";
@@ -53,20 +54,20 @@ export type BoardKind = "kanban" | NonNullable<Board["kind"]>;
 
 export const boardKind = (b: Pick<Board, "kind">): BoardKind => b.kind ?? "kanban";
 
-/** A task takes one issue; the others are listed at the end of its description so they aren't lost. */
+/** The task a promoted item becomes, with all of its issues linked. */
 function taskFrom(item: Promotable) {
-  const [first, ...rest] = item.issues;
-  const extra = rest.length ? `\n\nAlso: ${rest.map(issueKey).join(", ")}` : "";
   return {
     title: item.title.trim() || "Untitled",
-    description: (item.body.trim() + extra).trim(),
+    description: item.body.trim(),
     labels: item.tags,
-    issue: first ?? null,
+    ...issuesPatch(item.issues),
   };
 }
 
 /** How each kind of board takes in a promoted item. */
 const RECEIVERS: Record<BoardKind, (board: Board) => PromoteTarget[]> = {
+  // A view board only shows what comes from GitHub and GitLab.
+  view: () => [],
   kanban: (board) =>
     board.columns
       .filter((c) => !isViewColumn(c))

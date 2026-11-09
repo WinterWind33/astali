@@ -10,6 +10,10 @@ const MAX_PAGES: u32 = 10;
 /// Epics are a whole group's (and its parents'): big groups have thousands. The most recently
 /// updated ones are those a board links to.
 const MAX_EPIC_PAGES: u32 = 3;
+/// Merge requests a board links to are recent ones too; an older one can still be fetched by number.
+const MAX_MR_PAGES: u32 = 3;
+/// How many items linked from tasks a sync fetches by number past a capped list: one API page.
+const MAX_LINKED: usize = 100;
 
 /// What prefixes a GitLab project's cache key and issue refs, so they can't be taken for GitHub's.
 pub const PREFIX: &str = "gitlab:";
@@ -103,6 +107,19 @@ fn map_issue(key: &str, i: &Value) -> Value {
     v
 }
 
+/// A merge request in the issue cache's shape. GitLab numbers them apart from issues, so they are
+/// cached apart too. "merged" isn't an issue state: it reads as closed, with the reason kept.
+fn map_merge_request(key: &str, m: &Value) -> Value {
+    let mut v = map_issue(key, m);
+    v["isPullRequest"] = json!(true);
+    if m["state"] == "merged" {
+        v["state"] = json!("closed");
+        v["stateReason"] = json!("merged");
+        v["closedAt"] = m["merged_at"].clone();
+    }
+    v
+}
+
 fn map_epic(e: &Value) -> Option<Value> {
     let group = e["references"]["full"]
         .as_str()
@@ -129,26 +146,203 @@ fn map_epic(e: &Value) -> Option<Value> {
     }))
 }
 
-/// Everything Astali caches of a GitLab project: `{ issues, labels, epics }`, plus `epicsError`
-/// when epics couldn't be read for another reason than the group not having them.
-pub fn fetch_project(path: &str, token: Option<&str>) -> Result<Value, String> {
+/// A project's milestone in the cache's shape. GitLab's list has no issue counts, so they come from
+/// the project's cached issues, which carry their milestone's title.
+fn map_milestone(key: &str, m: &Value, issues: &[Value]) -> Value {
+    let title = m["title"].as_str().unwrap_or("");
+    let count = |state: &str| {
+        issues
+            .iter()
+            .filter(|i| i["milestone"] == title && i["state"] == state)
+            .count()
+    };
+    json!({
+        "repo": key,
+        "number": m["iid"],
+        "title": title,
+        "description": m["description"].as_str().unwrap_or(""),
+        "state": if m["state"] == "closed" { "closed" } else { "open" },
+        "dueOn": m["due_date"],
+        "openIssues": count("open"),
+        "closedIssues": count("closed"),
+        "url": m["web_url"].as_str().unwrap_or(""),
+    })
+}
+
+fn issues_url(path: &str) -> String {
+    format!(
+        "{API}/projects/{}/issues?scope=all&state=all&order_by=updated_at&with_labels_details=true",
+        encoded(path)
+    )
+}
+
+fn merge_requests_url(path: &str) -> String {
+    format!(
+        "{API}/projects/{}/merge_requests?state=all&order_by=updated_at&with_labels_details=true",
+        encoded(path)
+    )
+}
+
+/// The items of a list endpoint with these numbers, in one request.
+fn fetch_by_iids(path: &str, list: &str, iids: &[u64], token: Option<&str>) -> Result<Vec<Value>, String> {
+    let picked: Vec<String> = iids.iter().map(|i| format!("iids%5B%5D={i}")).collect();
+    fetch_pages(path, &format!("{list}&{}", picked.join("&")), token, 1)
+}
+
+/// The numbers in `linked` that `listed` lacks, each once and at most MAX_LINKED.
+fn beyond_list(listed: &[Value], linked: &[u64]) -> Vec<u64> {
+    let have: std::collections::HashSet<u64> = listed.iter().filter_map(|i| i["iid"].as_u64()).collect();
+    let mut out: Vec<u64> = linked.iter().copied().filter(|n| !have.contains(n)).collect();
+    out.sort_unstable();
+    out.dedup();
+    out.truncate(MAX_LINKED);
+    out
+}
+
+/// A capped list, plus what tasks link that it stopped before, so those stay cached across syncs.
+/// A list that wasn't cut short has everything: a linked number it lacks no longer exists.
+fn list_with_linked(
+    path: &str,
+    list: &str,
+    pages: u32,
+    linked: &[u64],
+    token: Option<&str>,
+) -> Result<Vec<Value>, String> {
+    let mut all = fetch_pages(path, list, token, pages)?;
+    if all.len() as u32 >= pages * 100 {
+        let missing = beyond_list(&all, linked);
+        if !missing.is_empty() {
+            all.extend(fetch_by_iids(path, list, &missing, token)?);
+        }
+    }
+    Ok(all)
+}
+
+/// One issue or merge request by number, for those the capped lists of a sync stop before.
+pub fn fetch_item(path: &str, iid: u64, merge_request: bool, token: Option<&str>) -> Result<Value, String> {
+    let path = project_path(path)?;
+    let key = format!("{PREFIX}{path}");
+    let list = if merge_request {
+        merge_requests_url(&path)
+    } else {
+        issues_url(&path)
+    };
+    let found = fetch_by_iids(&path, &list, &[iid], token)?;
+    let (what, sign) = if merge_request {
+        ("Merge request", '!')
+    } else {
+        ("Issue", '#')
+    };
+    let item = found
+        .first()
+        .ok_or_else(|| format!("404 {what} {sign}{iid} not found in {path}"))?;
+    Ok(if merge_request {
+        map_merge_request(&key, item)
+    } else {
+        map_issue(&key, item)
+    })
+}
+
+/// Most result pages one view board query reads.
+const MAX_QUERY_PAGES: u32 = 3;
+/// The list filters a view board may send. Its rules come from the vault, which may be someone else's.
+const QUERY_KEYS: &[&str] = &[
+    "state",
+    "labels",
+    "not[labels]",
+    "milestone",
+    "epic_id",
+    "assignee_username",
+    "author_username",
+];
+
+fn percent(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// The list URL of a view board query, refused unless every filter is one of QUERY_KEYS.
+fn query_url(path: &str, merge_request: bool, params: &[(String, String)]) -> Result<String, String> {
+    let list = if merge_request { "merge_requests" } else { "issues" };
+    let mut url = format!(
+        "{API}/projects/{}/{list}?scope=all&order_by=updated_at&with_labels_details=true",
+        encoded(path)
+    );
+    for (key, value) in params {
+        if !QUERY_KEYS.contains(&key.as_str()) {
+            return Err(format!("Unknown GitLab filter '{key}'"));
+        }
+        url.push_str(&format!("&{}={}", percent(key), percent(value)));
+    }
+    Ok(url)
+}
+
+/// The issues or merge requests matching a view board's filters, for projects past a sync's capped lists.
+pub fn query_items(
+    path: &str,
+    merge_request: bool,
+    params: &[(String, String)],
+    token: Option<&str>,
+) -> Result<Vec<Value>, String> {
+    let path = project_path(path)?;
+    let key = format!("{PREFIX}{path}");
+    let url = query_url(&path, merge_request, params)?;
+    Ok(fetch_pages(&path, &url, token, MAX_QUERY_PAGES)?
+        .iter()
+        .map(|i| {
+            if merge_request {
+                map_merge_request(&key, i)
+            } else {
+                map_issue(&key, i)
+            }
+        })
+        .collect())
+}
+
+/// Everything Astali caches of a GitLab project: `{ issues, mergeRequests, labels, epics }`, plus
+/// `epicsError` when epics couldn't be read for another reason than the group not having them.
+/// `linked_issues` and `linked_merge_requests` are the numbers tasks link to.
+pub fn fetch_project(
+    path: &str,
+    token: Option<&str>,
+    linked_issues: &[u64],
+    linked_merge_requests: &[u64],
+) -> Result<Value, String> {
     let path = project_path(path)?;
     let key = format!("{PREFIX}{path}");
     let signed_out = token.is_none_or(|t| t.trim().is_empty());
     let project = format!("{API}/projects/{}", encoded(&path));
-    let issues = fetch_all(
-        &path,
-        &format!("{project}/issues?scope=all&state=all&order_by=updated_at&with_labels_details=true"),
-        token,
-    )?;
+    let issues = list_with_linked(&path, &issues_url(&path), MAX_PAGES, linked_issues, token)?;
     let issues: Vec<Value> = issues.iter().map(|i| map_issue(&key, i)).collect();
+    // Merge requests can be turned off for a project, which shouldn't cost it its issues.
+    let merge_requests: Vec<Value> = match list_with_linked(
+        &path,
+        &merge_requests_url(&path),
+        MAX_MR_PAGES,
+        linked_merge_requests,
+        token,
+    ) {
+        Ok(mrs) => mrs.iter().map(|m| map_merge_request(&key, m)).collect(),
+        Err(e) if e.starts_with("403") || e.starts_with("404") || (signed_out && e.starts_with("401")) => vec![],
+        Err(e) => return Err(e),
+    };
     let labels = match fetch_all(&path, &format!("{project}/labels?include_ancestor_groups=true"), token) {
         Ok(labels) => labels.iter().map(map_label).collect(),
         // gitlab.com lists a project's labels to signed-in users only; its issues carry theirs anyway.
         Err(e) if signed_out && e.starts_with("401") => labels_of(&issues),
         Err(e) => return Err(e),
     };
-    let mut out = json!({ "issues": issues, "labels": labels, "epics": [] });
+    // Like merge requests, milestones shouldn't cost a project its issues.
+    let milestones: Vec<Value> = match fetch_all(&path, &format!("{project}/milestones"), token) {
+        Ok(list) => list.iter().map(|m| map_milestone(&key, m, &issues)).collect(),
+        Err(e) if e.starts_with("403") || e.starts_with("404") || (signed_out && e.starts_with("401")) => vec![],
+        Err(e) => return Err(e),
+    };
+    let mut out = json!({ "issues": issues, "mergeRequests": merge_requests, "labels": labels, "milestones": milestones, "epics": [] });
     // Epics live on groups: the project's own group, and those above it.
     let (group, _) = path.rsplit_once('/').expect("checked by project_path");
     let url = format!(
@@ -305,6 +499,18 @@ pub fn parse_issue(s: &str) -> Option<(String, u64)> {
     Some((format!("{PREFIX}{}", project_path(path).ok()?), n.trim().parse().ok()?))
 }
 
+/// Splits `gitlab:group/sub/project!12`, `group/sub/project!12` or a gitlab.com merge request URL into
+/// (`gitlab:group/sub/project`, 12).
+pub fn parse_merge_request(s: &str) -> Option<(String, u64)> {
+    let s = s.trim();
+    if let Some(rest) = s.split("gitlab.com/").nth(1) {
+        let (path, tail) = rest.split_once("/-/merge_requests/")?;
+        return Some((format!("{PREFIX}{}", project_path(path).ok()?), leading_number(tail)?));
+    }
+    let (path, n) = s.strip_prefix(PREFIX).unwrap_or(s).split_once('!')?;
+    Some((format!("{PREFIX}{}", project_path(path).ok()?), n.trim().parse().ok()?))
+}
+
 /// Splits `gitlab:group/sub&5`, `group/sub&5` or a gitlab.com epic URL into (`gitlab:group/sub`, 5).
 pub fn parse_epic(s: &str) -> Option<(String, u64)> {
     let s = s.trim();
@@ -352,6 +558,22 @@ mod tests {
     }
 
     #[test]
+    fn view_board_queries_encode_their_values_and_only_send_known_filters() {
+        let p = |k: &str, v: &str| (k.to_string(), v.to_string());
+        let url = query_url("g/p", false, &[p("labels", "a b,c&d=1"), p("not[labels]", "x/y")]).unwrap();
+        assert!(
+            url.starts_with(&format!("{API}/projects/g%2Fp/issues?scope=all")),
+            "{url}"
+        );
+        assert!(
+            url.ends_with("&labels=a%20b%2Cc%26d%3D1&not%5Blabels%5D=x%2Fy"),
+            "{url}"
+        );
+        assert!(query_url("g/p", true, &[]).unwrap().contains("/merge_requests?"));
+        assert!(query_url("g/p", false, &[p("private_token", "x")]).is_err());
+    }
+
+    #[test]
     fn issues_and_epics_parse_from_refs_and_urls() {
         assert_eq!(
             parse_issue("gitlab:grp/sub/proj#12"),
@@ -363,6 +585,17 @@ mod tests {
         );
         assert_eq!(parse_issue("grp/proj#12"), None); // that's GitHub's form
         assert_eq!(parse_issue("gitlab:../x#1"), None);
+        assert_eq!(
+            parse_merge_request("gitlab:grp/sub/proj!12"),
+            Some(("gitlab:grp/sub/proj".into(), 12))
+        );
+        assert_eq!(parse_merge_request("grp/proj!4"), Some(("gitlab:grp/proj".into(), 4)));
+        assert_eq!(
+            parse_merge_request("https://gitlab.com/grp/proj/-/merge_requests/7/diffs"),
+            Some(("gitlab:grp/proj".into(), 7))
+        );
+        assert_eq!(parse_merge_request("https://gitlab.com/grp/proj/-/issues/7"), None);
+        assert_eq!(parse_merge_request("gitlab:../x!1"), None);
         assert_eq!(parse_epic("gitlab:grp/sub&5"), Some(("gitlab:grp/sub".into(), 5)));
         assert_eq!(parse_epic("grp&3"), Some(("gitlab:grp".into(), 3)));
         assert_eq!(
@@ -378,11 +611,12 @@ mod tests {
     fn live_gitlab_fetch() {
         let path = std::env::var("ASTALI_GITLAB_PROJECT").unwrap_or("gitlab-org/cli".into());
         let token = std::env::var("GITLAB_TOKEN").ok();
-        let v = fetch_project(&path, token.as_deref()).unwrap();
+        let v = fetch_project(&path, token.as_deref(), &[], &[]).unwrap();
         let issues = v["issues"].as_array().unwrap();
         println!(
-            "{path}: {} issues, {} labels, {} epics, epicsError {:?}",
+            "{path}: {} issues, {} merge requests, {} labels, {} epics, epicsError {:?}",
             issues.len(),
+            v["mergeRequests"].as_array().unwrap().len(),
             v["labels"].as_array().unwrap().len(),
             v["epics"].as_array().unwrap().len(),
             v.get("epicsError")
@@ -405,6 +639,59 @@ mod tests {
         println!("{} epics; issues whose epic isn't cached: {missing}", epics.len());
         assert!(!issues.is_empty());
         assert!(issues[0]["number"].is_u64());
+        // By number too, with the labels' details the list has.
+        let n = issues[0]["number"].as_u64().unwrap();
+        let one = fetch_item(&path, n, false, token.as_deref()).unwrap();
+        assert_eq!(one["number"], issues[0]["number"]);
+        assert_eq!(one["labels"], issues[0]["labels"]);
+        let mr = &v["mergeRequests"][0];
+        let one = fetch_item(&path, mr["number"].as_u64().unwrap(), true, token.as_deref()).unwrap();
+        assert_eq!(one["url"], mr["url"]);
+        assert_eq!(one["isPullRequest"], true);
+        assert!(fetch_item(&path, 99_999_999, false, token.as_deref())
+            .unwrap_err()
+            .starts_with("404"));
+    }
+
+    #[test]
+    fn milestones_count_the_cached_issues_with_their_title() {
+        let issues = [
+            json!({ "milestone": "1.0", "state": "open" }),
+            json!({ "milestone": "1.0", "state": "closed" }),
+            json!({ "milestone": "1.0", "state": "closed" }),
+            json!({ "milestone": "2.0", "state": "open" }),
+            json!({ "milestone": null, "state": "open" }),
+        ];
+        let m = json!({ "iid": 4, "title": "1.0", "state": "active", "due_date": "2026-12-01", "web_url": "u" });
+        let v = map_milestone("gitlab:g/p", &m, &issues);
+        assert_eq!(v["repo"], "gitlab:g/p");
+        assert_eq!(v["number"], 4);
+        assert_eq!(v["state"], "open");
+        assert_eq!(v["dueOn"], "2026-12-01");
+        assert_eq!(v["openIssues"], 1);
+        assert_eq!(v["closedIssues"], 2);
+    }
+
+    #[test]
+    fn merge_requests_read_merged_as_closed() {
+        let m = json!({ "iid": 9, "title": "M", "state": "merged", "merged_at": "m", "closed_at": null });
+        let v = map_merge_request("gitlab:g/p", &m);
+        assert_eq!(v["isPullRequest"], true);
+        assert_eq!(v["state"], "closed");
+        assert_eq!(v["stateReason"], "merged");
+        assert_eq!(v["closedAt"], "m");
+        assert_eq!(
+            map_merge_request("gitlab:g/p", &json!({ "state": "opened" }))["state"],
+            "open"
+        );
+    }
+
+    #[test]
+    fn only_linked_items_the_list_lacks_are_fetched_by_number() {
+        let listed = [json!({ "iid": 1 }), json!({ "iid": 2 })];
+        assert_eq!(beyond_list(&listed, &[2, 7, 5, 7]), vec![5, 7]);
+        let many: Vec<u64> = (10..300).collect();
+        assert_eq!(beyond_list(&listed, &many).len(), MAX_LINKED);
     }
 
     #[test]

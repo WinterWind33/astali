@@ -69,7 +69,7 @@ import {
 import type { GhIssue, Plan, PlanItem, PlanQuestion, PlanStep } from "../lib/types";
 import { cx, issueKey } from "../lib/util";
 import { DecisionDialog, IssueChip } from "./DecisionDialog";
-import { IssuePicker } from "./board/TaskDialog";
+import { IssuePicker } from "./board/LinkPickers";
 import { InlineEdit, Markdown, Menu, Modal, ModalHeader, Popover, confirm } from "./ui";
 
 /** Renders `code` spans in a one-line text such as a step title. */

@@ -17,10 +17,14 @@ validates input and keeps files consistent. Editing the JSON directly also works
 - `.astali/templates/*.json` — kanban board templates: `{ id, name, board: { columns, tasks, doneColumn, … } }`;
   `create_board` with `template` starts a board from one.
 - `.astali/history.jsonl` — change history written by the app and the MCP server (don't edit it). Edits made
-  directly to the JSON files are not recorded there, so they can't be undone from the app
+  directly to the JSON files are not recorded there, so they can't be undone from the app. A deleted project can be
+  restored from it for 30 days; then its entries are removed
 
 ## project.json
 `{ schemaVersion: 1, id, name, description, color, repos: [{owner, repo, provider?: "gitlab"}] (no provider: GitHub; a GitLab owner is the group path, e.g. "group/sub"), tagColors: { [tag lowercase]: color }, decisionCharLimit: number, glossaryCharLimit: number, boardOrder: [boardId...] (the sidebar's boards: not the glossary or archived boards), createdAt, updatedAt }`
+
+A project can carry `archivedAt` (when it was archived): it stays in its folder but is listed apart on the home
+page and out of reach of every MCP tool but `restore_project`; restoring drops the field.
 
 `tagColors` holds the colors picked for task tags (`Task.labels`); tags not listed get a color derived from their name.
 `decisionCharLimit` (a whole number from 50 to 5000, default 500) caps a decision's `why` + `rejected`, in characters.
@@ -71,7 +75,17 @@ one; the app shows it as its own sidebar entry, not as a board, and makes the fi
 - Term: `{ id, term, definition (markdown), tags: [string] (the project's tags), source (a URL, or any text such as a book and page; "" for none), createdAt, updatedAt }`
   — no two terms of a glossary are the same, ignoring case and accents; keep `definition` within the project's `glossaryCharLimit`.
 
-- Column: `{ id, name, color, wipLimit: number|null, collapsed?: true, taskIds: [taskId...], source: null|LabelSource|TagSource }` — order of `taskIds` is the card order.
+A board with `kind: "view"` is view-only: it stores rules and the app computes its cards from the project's GitHub
+and GitLab items. Its `tasks` stay empty and every column has a QuerySource. It holds `viewRules: Rules` (every card
+passes these), `viewSort: "updated"|"created"|"title"` and, when a card shows only in the first column it matches,
+`viewFirstMatch: true`.
+
+- QuerySource: `{ kind: "query", rules: Rules }`.
+- Rules: `{ repos: [repoKey], type: "issues"|"merge"|"both", state: "open"|"closed"|"all", githubLabels: LabelRule, gitlabLabels: LabelRule, milestone: PresenceRule, epic: PresenceRule, assignees: [string], authors: [string] }` — empty lists set no requirement.
+- LabelRule: `{ names: [string], match: "any"|"all", exclude: [string] }`.
+- PresenceRule: `{ mode: "any"|"has"|"none"|"is", names: [string] }` — `any` sets no requirement, `is` matches titles in `names`; `epic` only applies to GitLab items.
+
+- Column: `{ id, name, color, wipLimit: number|null, collapsed?: true, taskIds: [taskId...], source: null|LabelSource|TagSource|QuerySource }` — order of `taskIds` is the card order.
   `collapsed` is only written while the column is collapsed to a narrow strip on the board.
 - LabelSource: `{ kind: "label", repo: "owner/name", labelId: number, name, showClosed: boolean, deletedAt: ISO|null }`.
   While `deletedAt` is null the column is a live view of the cached issues carrying that GitHub label: the app
@@ -79,8 +93,8 @@ one; the app shows it as its own sidebar entry, not as a board, and makes the fi
 - TagSource: `{ kind: "tags", tags: [string], match: "any"|"all" }`. The column is a live view of the board's tasks
   carrying any (or all) of the tags, case-insensitively; the tasks stay in their own columns. `taskIds` stays empty.
 - Task: `{ id, title, description (markdown), priority: "none"|"low"|"medium"|"high"|"urgent", labels: [string] (the task's tags),
-  dueDate: "YYYY-MM-DD"|null, issue: {repo: "owner/name" or "gitlab:group/sub/project", number}|null,
-  epic?: {group: "gitlab:group/sub", iid} (a GitLab epic), color?: Color, checklist: [{id, text, done}],
+  dueDate: "YYYY-MM-DD"|null, issue: {repo: "owner/name" or "gitlab:group/sub/project", number}|null, mergeRequest?: {repo, number} (a GitLab merge request or GitHub pull request),
+  epic?: {group: "gitlab:group/sub", iid} (a GitLab epic), moreIssues?, moreMergeRequests?, moreMilestones? (one per repository), moreEpics? (one per group): lists of the same refs for links after the first, color?: Color, checklist: [{id, text, done}],
   links?: [{type: "blocks"|"relates", board: <board id>, task: <task id>}], createdAt, updatedAt }`.
   A link is stored once, on the task it starts from ("blocked by" is the other task's "blocks"); a pair of tasks has
   at most one link, and `links` is left out when empty.

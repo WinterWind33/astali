@@ -91,6 +91,29 @@ export function collectTags(
   return [...byKey.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
+const RECENT_TAGS = 5;
+const recentTagsKey = (projectId: string) => `astali.tags.recent.${projectId}`;
+
+/** The tags last added from a tag field of this project on this machine, latest first, as tag keys. */
+export function recentTags(projectId: string): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(recentTagsKey(projectId)) ?? "[]");
+    return Array.isArray(v) ? v.filter((t): t is string => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberRecentTag(projectId: string, tag: string) {
+  const key = tagKey(tag);
+  const next = [key, ...recentTags(projectId).filter((t) => t !== key)].slice(0, RECENT_TAGS);
+  try {
+    localStorage.setItem(recentTagsKey(projectId), JSON.stringify(next));
+  } catch {
+    // Not remembered; the suggestions just keep their usual order.
+  }
+}
+
 /** The project's decisions, as a list (the store keeps them keyed by id). */
 export const decisionList = (decisions: Record<string, { decision: Decision }>) =>
   Object.values(decisions).map((e) => e.decision);
